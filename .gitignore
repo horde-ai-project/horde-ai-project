@@ -1,0 +1,5 @@
+/target
+/horde-data
+**/*.keystore.json
+.DS_Store
+*.swp

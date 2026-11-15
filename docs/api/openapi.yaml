@@ -1,0 +1,834 @@
+openapi: 3.0.3
+info:
+  title: Horde Studio & Admin API
+  version: 0.3.0
+  description: |
+    Phase C localhost admin/studio API for the Horde invite-bounded P2P GPU substrate.
+    Tokenisation jobs chunk under pinned fingerprints. Public DHT is an explicit opt-in stub
+    (invite-only remains default). Mesh overlay uses a separate bind (HORDE_MESH_BIND).
+    No built-in AI studio. No cryptocurrency.
+  contact:
+    name: Automagic Pty Ltd
+    url: https://www.automagic.com.au
+servers:
+  - url: http://127.0.0.1:8787
+    description: Default local bind
+tags:
+  - name: public
+  - name: admin
+  - name: mesh
+  - name: studio
+paths:
+  /health:
+    get:
+      tags: [public]
+      summary: Liveness probe
+      security: []
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+                  protocol_version:
+                    type: string
+                    example: "0.3.0"
+  /v1/meta:
+    get:
+      tags: [public]
+      summary: Product metadata
+      security: []
+      responses:
+        "200":
+          description: Meta
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+  /v1/admin/status:
+    get:
+      tags: [admin]
+      summary: Collective status
+      responses:
+        "200":
+          description: Status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CollectiveStatus"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /v1/admin/servers:
+    get:
+      tags: [admin]
+      summary: List physical servers
+      responses:
+        "200":
+          description: Servers
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ServerSnapshot"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /v1/admin/servers/{server_id}/limits:
+    post:
+      tags: [admin]
+      summary: Set per-server GPU and time limits
+      parameters:
+        - $ref: "#/components/parameters/ServerId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ServerLimits"
+      responses:
+        "200":
+          description: Updated snapshot
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ServerSnapshot"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/Error"
+  /v1/admin/invites:
+    get:
+      tags: [admin]
+      summary: List invite records
+      responses:
+        "200":
+          description: Invites (secrets hashed)
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/InviteRecord"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    post:
+      tags: [admin]
+      summary: Mint invite token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MintInviteRequest"
+      responses:
+        "200":
+          description: Plaintext token (shown once)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InviteTokenPlain"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /v1/admin/invites/redeem:
+    post:
+      tags: [admin]
+      summary: Redeem invite (collective or mesh)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InviteRedeemRequest"
+      responses:
+        "200":
+          description: Joined server snapshot (mesh_join marks invite; prefer /v1/admin/mesh/join to dial)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ServerSnapshot"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /v1/admin/api-keys:
+    post:
+      tags: [admin]
+      summary: Create studio API key
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [label]
+              properties:
+                label:
+                  type: string
+      responses:
+        "200":
+          description: Created key
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [api_key, label]
+                properties:
+                  api_key:
+                    type: string
+                  label:
+                    type: string
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /v1/admin/mesh/status:
+    get:
+      tags: [mesh, admin]
+      summary: Mesh status (peers, bootstrap, blocklist)
+      responses:
+        "200":
+          description: Mesh status
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /v1/admin/mesh/bootstrap:
+    post:
+      tags: [mesh, admin]
+      summary: Set publish-only bootstrap peers list
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [peers]
+              properties:
+                peers:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/BootstrapPeer"
+      responses:
+        "200":
+          description: Updated
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /v1/admin/mesh/join:
+    post:
+      tags: [mesh, admin]
+      summary: Dial a peer with a mesh invite token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MeshJoinRequest"
+      responses:
+        "200":
+          description: Peer info
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MeshPeerInfo"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /v1/admin/mesh/blocklist:
+    get:
+      tags: [mesh, admin]
+      summary: List local blocklist
+      responses:
+        "200":
+          description: Blocked node ids
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  blocked_node_ids:
+                    type: array
+                    items:
+                      type: string
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    post:
+      tags: [mesh, admin]
+      summary: Block a peer by node fingerprint
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [node_id]
+              properties:
+                node_id:
+                  type: string
+      responses:
+        "200":
+          description: Blocked
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /v1/admin/mesh/blocklist/{node_id}:
+    delete:
+      tags: [mesh, admin]
+      summary: Unblock a peer
+      parameters:
+        - name: node_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Unblock result
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /v1/admin/support-matrix:
+    get:
+      tags: [admin]
+      summary: Workload support matrix and resource gates
+      responses:
+        "200":
+          description: Supported work kinds, backends, VRAM floors, shardability
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /v1/admin/mesh/dht:
+    get:
+      tags: [mesh, admin]
+      summary: Public DHT stub status (default disabled / invite-only)
+      responses:
+        "200":
+          description: DHT config
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    post:
+      tags: [mesh, admin]
+      summary: Configure public DHT stub (explicit opt-in)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PublicDhtConfig"
+      responses:
+        "200":
+          description: Updated config
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /v1/admin/mesh/dht/challenge:
+    post:
+      tags: [mesh, admin]
+      summary: Issue resource-proof challenge for DHT lookup
+      responses:
+        "200":
+          description: Challenge
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ResourceProofChallenge"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /v1/admin/mesh/dht/lookup:
+    post:
+      tags: [mesh, admin]
+      summary: Stub public DHT lookup (rate-limited; proof when required)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [key]
+              properties:
+                key:
+                  type: string
+                proof:
+                  $ref: "#/components/schemas/ResourceProofResponse"
+      responses:
+        "200":
+          description: Discovered peers (stub returns empty list)
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/Error"
+  /v1/jobs:
+    post:
+      tags: [studio]
+      summary: Create and schedule a job
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/JobCreateRequest"
+      responses:
+        "202":
+          description: Accepted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobStatusResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /v1/jobs/{job_id}:
+    get:
+      tags: [studio]
+      summary: Get job status
+      parameters:
+        - $ref: "#/components/parameters/JobId"
+      responses:
+        "200":
+          description: Status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobStatusResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/Error"
+  /v1/jobs/{job_id}/result:
+    get:
+      tags: [studio]
+      summary: Fetch job result and attestation
+      parameters:
+        - $ref: "#/components/parameters/JobId"
+      responses:
+        "200":
+          description: Result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobResult"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/Error"
+  /v1/jobs/{job_id}/cancel:
+    post:
+      tags: [studio]
+      summary: Cancel a non-terminal job
+      parameters:
+        - $ref: "#/components/parameters/JobId"
+      responses:
+        "200":
+          description: Cancelled status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobStatusResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/Error"
+  /v1/jobs/{job_id}/accept:
+    post:
+      tags: [studio]
+      summary: Requester accepts attested result
+      parameters:
+        - $ref: "#/components/parameters/JobId"
+      responses:
+        "200":
+          description: Updated status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobStatusResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/Error"
+  /v1/jobs/{job_id}/reject:
+    post:
+      tags: [studio]
+      summary: Requester rejects attested result
+      parameters:
+        - $ref: "#/components/parameters/JobId"
+      responses:
+        "200":
+          description: Updated status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobStatusResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/Error"
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: API key
+  security:
+    - bearerAuth: []
+  parameters:
+    ServerId:
+      name: server_id
+      in: path
+      required: true
+      schema:
+        type: string
+    JobId:
+      name: job_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+  responses:
+    Unauthorized:
+      description: Missing or invalid API key
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorBody"
+    Error:
+      description: Error
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorBody"
+  schemas:
+    ErrorBody:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+    ModelFingerprint:
+      type: object
+      required: [model_id, revision_hash]
+      properties:
+        model_id:
+          type: string
+        revision_hash:
+          type: string
+        tokenizer_revision:
+          type: string
+          nullable: true
+        precision:
+          type: string
+          default: fp16
+    JobCreateRequest:
+      type: object
+      required: [fingerprint, payload]
+      properties:
+        fingerprint:
+          $ref: "#/components/schemas/ModelFingerprint"
+        kind:
+          type: string
+          enum: [stub_echo, text_generate, tokenize, embed, video_generate]
+          default: stub_echo
+          description: |
+            tokenize/embed are shardable under one pinned fingerprint (tokenizer_revision required).
+            video_generate is whole-unit and hard-gated (CUDA/ROCm + high VRAM); stub rejects it.
+        payload:
+          type: string
+          description: |
+            For tokenize, JSON TokenizeRequest ({documents, chunk_size, seed}) or raw text.
+        requested_vram_mb:
+          type: integer
+          nullable: true
+        routing:
+          type: string
+          enum: [local, mesh, auto]
+          default: local
+    PublicDhtConfig:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+          default: false
+          description: Must be true explicitly; invite-only remains the default join path
+        max_queries_per_minute:
+          type: integer
+          default: 30
+        require_resource_proof:
+          type: boolean
+          default: true
+    ResourceProofChallenge:
+      type: object
+      required: [nonce_hex, difficulty]
+      properties:
+        nonce_hex:
+          type: string
+        difficulty:
+          type: integer
+    ResourceProofResponse:
+      type: object
+      required: [nonce_hex, counter, digest_hex]
+      properties:
+        nonce_hex:
+          type: string
+        counter:
+          type: integer
+        digest_hex:
+          type: string
+    JobStatusResponse:
+      type: object
+      required: [id, status, fingerprint, kind, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [queued, scheduled, running, succeeded, failed, cancelled]
+        fingerprint:
+          $ref: "#/components/schemas/ModelFingerprint"
+        kind:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        assigned_server_id:
+          type: string
+          nullable: true
+        assigned_peer_id:
+          type: string
+          nullable: true
+        routing:
+          type: string
+          enum: [local, mesh, auto]
+        result_decision:
+          type: string
+          enum: [pending, accepted, rejected]
+        error:
+          type: string
+          nullable: true
+    ResultAttestation:
+      type: object
+      required: [worker_node_id, model_fingerprint, runtime, wall_time_ms, signature_hex]
+      properties:
+        worker_node_id:
+          type: string
+          description: Hex-encoded Ed25519 public key (NodeId)
+        model_fingerprint:
+          $ref: "#/components/schemas/ModelFingerprint"
+        runtime:
+          type: string
+        wall_time_ms:
+          type: integer
+        signature_hex:
+          type: string
+    JobResult:
+      type: object
+      required: [output, attestation]
+      properties:
+        output:
+          type: string
+        attestation:
+          $ref: "#/components/schemas/ResultAttestation"
+    TimeWindow:
+      type: object
+      required: [start_hour, end_hour]
+      properties:
+        start_hour:
+          type: integer
+          minimum: 0
+          maximum: 23
+        end_hour:
+          type: integer
+          minimum: 1
+          maximum: 24
+        max_gpu_minutes_per_day:
+          type: integer
+          nullable: true
+    ServerLimits:
+      type: object
+      required: [gpu_percent, time_window, disk_budget_mb, accept_network_jobs, enabled]
+      properties:
+        gpu_percent:
+          type: integer
+          minimum: 1
+          maximum: 100
+        time_window:
+          $ref: "#/components/schemas/TimeWindow"
+        disk_budget_mb:
+          type: integer
+        accept_network_jobs:
+          type: boolean
+        enabled:
+          type: boolean
+    CapabilityAdvert:
+      type: object
+      additionalProperties: true
+    ServerSnapshot:
+      type: object
+      required: [server_id, hostname, limits, capability, node_id]
+      properties:
+        server_id:
+          type: string
+        hostname:
+          type: string
+        limits:
+          $ref: "#/components/schemas/ServerLimits"
+        capability:
+          $ref: "#/components/schemas/CapabilityAdvert"
+        node_id:
+          type: string
+    CollectiveStatus:
+      type: object
+      properties:
+        protocol_version:
+          type: string
+        mode:
+          type: string
+        node_id:
+          type: string
+        head_server_id:
+          type: string
+        member_count:
+          type: integer
+        job_count:
+          type: integer
+        members:
+          type: array
+          items:
+            $ref: "#/components/schemas/ServerSnapshot"
+    InvitePurpose:
+      type: string
+      enum: [collective_join, mesh_join]
+    MintInviteRequest:
+      type: object
+      required: [purpose]
+      properties:
+        purpose:
+          $ref: "#/components/schemas/InvitePurpose"
+        ttl_secs:
+          type: integer
+          default: 3600
+        note:
+          type: string
+          nullable: true
+    InviteTokenPlain:
+      type: object
+      required: [token_id, token, purpose, expires_at]
+      properties:
+        token_id:
+          type: string
+          format: uuid
+        token:
+          type: string
+        purpose:
+          $ref: "#/components/schemas/InvitePurpose"
+        expires_at:
+          type: string
+          format: date-time
+    InviteRecord:
+      type: object
+      properties:
+        token_id:
+          type: string
+          format: uuid
+        token_hash:
+          type: string
+        purpose:
+          $ref: "#/components/schemas/InvitePurpose"
+        created_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+        redeemed:
+          type: boolean
+        redeemed_by:
+          type: string
+          nullable: true
+        note:
+          type: string
+          nullable: true
+    InviteRedeemRequest:
+      type: object
+      required: [token, claimant]
+      properties:
+        token:
+          type: string
+        claimant:
+          type: string
+        purpose:
+          $ref: "#/components/schemas/InvitePurpose"
+    BootstrapPeer:
+      type: object
+      required: [addr]
+      properties:
+        addr:
+          type: string
+        note:
+          type: string
+          nullable: true
+    MeshJoinRequest:
+      type: object
+      required: [peer_addr, token]
+      properties:
+        peer_addr:
+          type: string
+        token:
+          type: string
+    MeshPeerInfo:
+      type: object
+      properties:
+        node_id:
+          type: string
+        public_key:
+          type: string
+        addr:
+          type: string
+        capability:
+          $ref: "#/components/schemas/CapabilityAdvert"
+        connected:
+          type: boolean
+
+security:
+  - bearerAuth: []

@@ -1,0 +1,136 @@
+# Horde Studio & Admin API (Phase C)
+
+Base URL (default): `http://127.0.0.1:8787`
+
+Auth: `Authorization: Bearer <api_key>` on all `/v1/*` routes except `/health` and `/v1/meta`.
+
+Machine-readable contract: [`openapi.yaml`](./openapi.yaml).
+
+Admin/studio HTTP is **localhost / collective-only**. The invite-bounded mesh listens on a **separate** bind (`HORDE_MESH_BIND`) and never carries admin traffic. Public DHT discovery is an **explicit opt-in stub** (default off).
+
+## Concepts
+
+| Term | Meaning |
+|------|---------|
+| **Collective** | Logical node: one peer identity, many physical servers |
+| **Physical server** | One OS host with GPU caps + time window |
+| **Model fingerprint** | Required `model_id` + `revision_hash` (+ tokenizer/precision) |
+| **Tokenise chunking** | Shardable pipeline under **one** pinned fingerprint + seed |
+| **Support matrix** | Per-kind backends, VRAM floors, shardability, video gates |
+| **Invite** | Short-lived token for collective join or mesh soft-trust |
+| **Mesh** | Noise-encrypted peer channels among invited nodes |
+| **Public DHT** | Optional opt-in stub; rate-limited + resource-proof hooks |
+| **Bootstrap peers** | Static/config publish-only dial list — **not** a job authority |
+| **Blocklist** | Local operator deny list (first-class; not gossiped as authority) |
+
+## Endpoints
+
+### Public
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/health` | Liveness |
+| GET | `/v1/meta` | Product/mode/node id (+ mesh + `public_dht_enabled`) |
+
+### Admin (localhost / collective)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/v1/admin/status` | Collective overview + members (+ mesh status) |
+| GET | `/v1/admin/servers` | List physical servers |
+| POST | `/v1/admin/servers/{server_id}/limits` | Set GPU %, time window, disk, flags |
+| GET | `/v1/admin/support-matrix` | Workload gates (backends / VRAM / shardable) |
+| GET | `/v1/admin/invites` | List invite records (hashed secrets) |
+| POST | `/v1/admin/invites` | Mint invite (plaintext returned once) |
+| POST | `/v1/admin/invites/redeem` | Redeem invite (collective join bookkeeping) |
+| POST | `/v1/admin/api-keys` | Create an additional studio API key |
+| GET | `/v1/admin/mesh/status` | Mesh bind, peers, bootstrap, blocklist, DHT flag |
+| POST | `/v1/admin/mesh/bootstrap` | Replace publish-only bootstrap peer list |
+| POST | `/v1/admin/mesh/join` | Dial peer with mesh invite token |
+| GET\|POST | `/v1/admin/mesh/blocklist` | List / block |
+| DELETE | `/v1/admin/mesh/blocklist/{node_id}` | Unblock |
+| GET\|POST | `/v1/admin/mesh/dht` | DHT stub status / explicit opt-in config |
+| POST | `/v1/admin/mesh/dht/challenge` | Issue resource-proof challenge |
+| POST | `/v1/admin/mesh/dht/lookup` | Rate-limited stub lookup |
+
+### Studio (AI product integration)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/v1/jobs` | Create job → local and/or mesh schedule |
+| GET | `/v1/jobs/{job_id}` | Job status |
+| GET | `/v1/jobs/{job_id}/result` | Result + worker attestation (when succeeded) |
+| POST | `/v1/jobs/{job_id}/cancel` | Cancel if not terminal |
+| POST | `/v1/jobs/{job_id}/accept` | Requester accepts attested result |
+| POST | `/v1/jobs/{job_id}/reject` | Requester rejects attested result |
+
+## Job create body
+
+```json
+{
+  "fingerprint": {
+    "model_id": "stub/tokenizer",
+    "revision_hash": "deadbeefcafebabe",
+    "tokenizer_revision": "tok-rev-1",
+    "precision": "fp16"
+  },
+  "kind": "tokenize",
+  "payload": "{\"documents\":[\"a b\",\"c d e\"],\"chunk_size\":1,\"seed\":7}",
+  "requested_vram_mb": null,
+  "routing": "local"
+}
+```
+
+`routing` values: `local` (default), `mesh`, `auto` (local first, else mesh).
+
+`kind` values:
+
+| Kind | Shardable | Notes |
+|------|-----------|-------|
+| `stub_echo` | no | CI smoke |
+| `text_generate` | no | Whole-unit generative |
+| `tokenize` | **yes** | Requires `tokenizer_revision`; deterministic chunks |
+| `embed` | **yes** | Requires `tokenizer_revision`; stub checksum path |
+| `video_generate` | no | Hard gate: CUDA/ROCm + ≥12288 MiB; stub rejects |
+
+## Limits body
+
+```json
+{
+  "gpu_percent": 50,
+  "time_window": {
+    "start_hour": 22,
+    "end_hour": 7,
+    "max_gpu_minutes_per_day": 240
+  },
+  "disk_budget_mb": 50000,
+  "accept_network_jobs": true,
+  "enabled": true
+}
+```
+
+## Public DHT (opt-in)
+
+```json
+{
+  "enabled": true,
+  "max_queries_per_minute": 30,
+  "require_resource_proof": true
+}
+```
+
+Env: `HORDE_PUBLIC_DHT=1` (optional `HORDE_DHT_QPM`). Invite join remains the default; the stub does not discover public peers.
+
+## Errors
+
+JSON shape: `{ "error": "<message>" }` with appropriate HTTP status (`401`, `404`, `400`, `429`, `500`).
+
+## Safety notes for integrators
+
+- Pin fingerprints on every job; do not send arbitrary model URLs.
+- Tokenise/embed must pin `tokenizer_revision`; chunk only under that pin.
+- Treat invite plaintext and API keys as secrets.
+- Do not expose the admin API on the public internet; defaults to loopback.
+- Mesh is invite-bounded by default; public DHT is opt-in only.
+- Result attestations are for audit, not payment. There is no cryptocurrency.
+- Local blocklists override soft trust; gossip is not an authority.

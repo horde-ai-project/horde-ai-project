@@ -1,0 +1,55 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/horde-protocol",
+    "crates/horde-node",
+    "crates/horde-collective",
+    "crates/horde-mesh",
+    "crates/horde-api",
+]
+default-members = [
+    "crates/horde-protocol",
+    "crates/horde-node",
+    "crates/horde-collective",
+    "crates/horde-mesh",
+    "crates/horde-api",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+authors = ["Automagic Pty Ltd"]
+repository = "https://www.automagic.com.au"
+
+[workspace.dependencies]
+horde-protocol = { path = "crates/horde-protocol" }
+horde-node = { path = "crates/horde-node" }
+horde-collective = { path = "crates/horde-collective" }
+horde-mesh = { path = "crates/horde-mesh" }
+
+anyhow = "1"
+argon2 = "=0.5.3"
+async-trait = "0.1"
+axum = { version = "=0.7.9", features = ["macros"] }
+base64 = "0.22"
+# Transitive pin: newer base64ct requires rustc ≥ 1.85 (edition2024).
+base64ct = "=1.6.0"
+chacha20poly1305 = "=0.10.1"
+chrono = { version = "=0.4.39", features = ["serde"] }
+ed25519-dalek = { version = "=2.1.1", features = ["rand_core", "serde"] }
+hex = "0.4"
+# Transitive pin for axum/hyper on rustc 1.83.
+hyper-util = "=0.1.10"
+rand = "0.8"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "=0.10.8"
+snow = "=0.9.6"
+thiserror = "1"
+tokio = { version = "=1.43.0", features = ["rt-multi-thread", "macros", "sync", "time", "fs", "signal", "net", "io-util"] }
+tower-http = { version = "=0.5.2", features = ["cors", "trace"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+uuid = { version = "=1.11.0", features = ["v4", "serde"] }
+zeroize = { version = "=1.8.1", default-features = false }

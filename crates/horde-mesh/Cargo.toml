@@ -1,0 +1,27 @@
+[package]
+name = "horde-mesh"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "Invite-bounded Noise mesh: peer channels, capability ads, cross-node jobs"
+
+[dependencies]
+horde-protocol = { workspace = true }
+horde-node = { workspace = true }
+anyhow = { workspace = true }
+async-trait = { workspace = true }
+ed25519-dalek = { workspace = true }
+hex = { workspace = true }
+rand = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+uuid = { workspace = true }
+snow = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "sync", "time", "net", "io-util"] }
