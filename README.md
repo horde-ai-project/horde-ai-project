@@ -100,3 +100,7 @@ Every job **must** pin a `model_id` + `revision_hash`. Tokenise/embed also requi
 - Hugging Face arbitrary URL execution
 - Real public DHT overlay (stub + hooks only)
 - Soft reputation gossip as ban authority
+
+## License
+
+Horde is licensed under the [PolyForm Noncommercial License 1.0.0](https://polyformproject.org/licenses/noncommercial/1.0.0). See [`LICENSE`](LICENSE) for the full terms.
