@@ -83,6 +83,8 @@ Every job **must** pin a `model_id` + `revision_hash`. Results include a worker 
 
 ## Documentation
 
+- Install & setup: [`docs/INSTALL.md`](docs/INSTALL.md)
+- Getting started: [`docs/GETTING_STARTED.md`](docs/GETTING_STARTED.md)
 - Human API guide: [`docs/api/README.md`](docs/api/README.md)
 - OpenAPI 3: [`docs/api/openapi.yaml`](docs/api/openapi.yaml)
 
