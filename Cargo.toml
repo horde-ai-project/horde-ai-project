@@ -18,9 +18,9 @@ default-members = [
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
-license = "MIT OR Apache-2.0"
-authors = ["Automagic Pty Ltd"]
-repository = "https://www.automagic.com.au"
+license = "PolyForm-Noncommercial-1.0.0"
+authors = ["Adam Webber"]
+repository = "https://github.com/horde-ai-project/horde-ai-project"
 
 [workspace.dependencies]
 horde-protocol = { path = "crates/horde-protocol" }

@@ -95,4 +95,6 @@ Every job **must** pin a `model_id` + `revision_hash`. Results include a worker 
 
 ## License
 
+Copyright (c) 2026 Adam Webber.
+
 Horde is licensed under the [PolyForm Noncommercial License 1.0.0](https://polyformproject.org/licenses/noncommercial/1.0.0). See [`LICENSE`](LICENSE) for the full terms.

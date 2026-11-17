@@ -9,8 +9,7 @@ info:
     (invite-only remains default). Mesh overlay uses a separate bind (HORDE_MESH_BIND).
     No built-in AI studio. No cryptocurrency / credits.
   contact:
-    name: Automagic Pty Ltd
-    url: https://www.automagic.com.au
+    name: Adam Webber
 servers:
   - url: http://127.0.0.1:8787
     description: Default local bind
