@@ -1,0 +1,20 @@
+/* Amber field */
+:root {
+  --bg-0: #fff8eb;
+  --bg-1: #f3e2c2;
+  --bg-glow: rgba(180, 120, 20, 0.16);
+  --fg: #2c210f;
+  --muted: #6e5a38;
+  --brand: #6b4a12;
+  --accent: #b7791f;
+  --accent-fg: #fffaf0;
+  --surface: rgba(255, 252, 245, 0.9);
+  --input-bg: #fffdf8;
+  --code-bg: #f4e8d0;
+  --border: #d9c49a;
+  --table-head: #f3e9d4;
+  --row-hover: rgba(183, 121, 31, 0.08);
+  --ok: #3f6e2f;
+  --bad: #b42318;
+  --warn: #8a5a00;
+}

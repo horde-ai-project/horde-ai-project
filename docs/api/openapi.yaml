@@ -64,6 +64,34 @@ paths:
                 $ref: "#/components/schemas/CollectiveStatus"
         "401":
           $ref: "#/components/responses/Unauthorized"
+  /v1/admin/config:
+    get:
+      tags: [admin]
+      summary: Redacted runtime config for the operator UI
+      description: Bind address, data dir, mesh flags. Never includes passphrase.
+      responses:
+        "200":
+          description: Public runtime config
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  bind:
+                    type: string
+                  data_dir:
+                    type: string
+                  hostname:
+                    type: string
+                  mesh_bind:
+                    type: string
+                    nullable: true
+                  mesh_enabled:
+                    type: boolean
+                  ui_path:
+                    type: string
+        "401":
+          $ref: "#/components/responses/Unauthorized"
   /v1/admin/servers:
     get:
       tags: [admin]
@@ -455,6 +483,28 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
   /v1/jobs:
+    get:
+      tags: [studio]
+      summary: List recent jobs (newest first)
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+            default: 50
+      responses:
+        "200":
+          description: Job status list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/JobStatusResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
     post:
       tags: [studio]
       summary: Create and schedule a job

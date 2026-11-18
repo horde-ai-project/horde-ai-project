@@ -541,6 +541,16 @@ impl CollectiveHead {
             .ok_or(ProtocolError::JobNotFound)
     }
 
+    /// Recent jobs newest-first (in-memory; capped).
+    pub async fn list_jobs(&self, limit: usize) -> Vec<JobRecord> {
+        let cap = limit.clamp(1, 500);
+        let jobs = self.jobs.read().await;
+        let mut list: Vec<JobRecord> = jobs.values().cloned().collect();
+        list.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+        list.truncate(cap);
+        list
+    }
+
     pub async fn get_result(&self, id: &JobId) -> ProtocolResult<JobResult> {
         let job = self.get_job(id).await?;
         match job.status {

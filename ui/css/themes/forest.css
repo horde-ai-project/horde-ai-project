@@ -1,0 +1,20 @@
+/* Forest green */
+:root {
+  --bg-0: #eef5ef;
+  --bg-1: #d7e6d9;
+  --bg-glow: rgba(46, 110, 58, 0.16);
+  --fg: #1b2a1d;
+  --muted: #5a6e5d;
+  --brand: #1f4d2a;
+  --accent: #2f6e3a;
+  --accent-fg: #f3fff5;
+  --surface: rgba(250, 255, 251, 0.86);
+  --input-bg: #f7fcf8;
+  --code-bg: #e3eee5;
+  --border: #b7cbb9;
+  --table-head: #e4efe6;
+  --row-hover: rgba(47, 110, 58, 0.07);
+  --ok: #217a3c;
+  --bad: #a32b20;
+  --warn: #8a6412;
+}

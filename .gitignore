@@ -2,6 +2,8 @@
 /horde-data
 /horde-data-*
 horde-data*/
+/horde.pid
+/horde.log
 **/*.keystore.json
 **/*.keystore
 .env

@@ -1,0 +1,20 @@
+/* Coffee palette */
+:root {
+  --bg-0: #f3ebe3;
+  --bg-1: #e4d3c3;
+  --bg-glow: rgba(120, 72, 40, 0.16);
+  --fg: #2b1d14;
+  --muted: #6e5646;
+  --brand: #4a2f1f;
+  --accent: #6f4e37;
+  --accent-fg: #fff8f1;
+  --surface: rgba(255, 250, 244, 0.86);
+  --input-bg: #fffaf5;
+  --code-bg: #ebe0d4;
+  --border: #cbb39d;
+  --table-head: #eadfd2;
+  --row-hover: rgba(111, 78, 55, 0.08);
+  --ok: #3f6b3a;
+  --bad: #8f2d1f;
+  --warn: #8a5a12;
+}

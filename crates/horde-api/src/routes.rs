@@ -1,4 +1,4 @@
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::routing::{delete, get, post};
 use axum::{Json, Router};
@@ -10,6 +10,7 @@ use horde_protocol::{
     PeerSoftScore, PublicDhtConfig, ResourceProofResponse, ResultDecision, ServerLimits,
     PROTOCOL_VERSION,
 };
+use serde::Deserialize;
 use serde::Serialize;
 use serde_json::{json, Value};
 use uuid::Uuid;
@@ -24,6 +25,7 @@ pub fn api_router(state: AppState) -> Router {
         .route("/v1/meta", get(meta))
         // Admin
         .route("/v1/admin/status", get(admin_status))
+        .route("/v1/admin/config", get(admin_config))
         .route("/v1/admin/servers", get(list_servers))
         .route("/v1/admin/servers/:server_id/limits", post(set_limits))
         .route("/v1/admin/invites", get(list_invites).post(mint_invite))
@@ -52,7 +54,7 @@ pub fn api_router(state: AppState) -> Router {
             post(set_peer_priority),
         )
         // Studio
-        .route("/v1/jobs", post(create_job))
+        .route("/v1/jobs", get(list_jobs).post(create_job))
         .route("/v1/jobs/:job_id", get(get_job))
         .route("/v1/jobs/:job_id/result", get(get_result))
         .route("/v1/jobs/:job_id/cancel", post(cancel_job))
@@ -99,6 +101,14 @@ async fn admin_status(
     _auth: AdminAuth,
 ) -> Json<horde_collective::CollectiveStatus> {
     Json(state.head.status().await)
+}
+
+/// Redacted bind / data-dir / mesh flags for the Host panel (never passphrase).
+async fn admin_config(
+    State(state): State<AppState>,
+    _auth: AdminAuth,
+) -> Json<crate::PublicRuntimeConfig> {
+    Json(state.public_config.clone())
 }
 
 async fn list_servers(
@@ -315,6 +325,25 @@ async fn set_peer_priority(
             .set_peer_priority_hint(&node_id, body.priority_hint)
             .await?,
     ))
+}
+
+#[derive(Deserialize)]
+struct ListJobsQuery {
+    #[serde(default = "default_job_limit")]
+    limit: usize,
+}
+
+fn default_job_limit() -> usize {
+    50
+}
+
+async fn list_jobs(
+    State(state): State<AppState>,
+    _auth: StudioAuth,
+    Query(q): Query<ListJobsQuery>,
+) -> Json<Vec<JobStatusResponse>> {
+    let jobs = state.head.list_jobs(q.limit).await;
+    Json(jobs.iter().map(JobStatusResponse::from).collect())
 }
 
 async fn create_job(
