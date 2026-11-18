@@ -203,6 +203,7 @@ Automated two-node loopback demo (Linux/macOS bash, or Git Bash / WSL on Windows
 ## Next steps
 
 - One-page overview: [GETTING_STARTED.md](GETTING_STARTED.md)
+- Day-to-day operations: [OPERATIONS.md](OPERATIONS.md)
 - Human API guide: [api/README.md](api/README.md)
 - OpenAPI contract: [api/openapi.yaml](api/openapi.yaml)
 
