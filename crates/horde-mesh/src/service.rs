@@ -52,7 +52,8 @@ struct PendingJob {
 pub struct MeshService {
     identity: IdentityKeys,
     noise_kp: NoiseKeypair,
-    bind: SocketAddr,
+    /// Configured / actual listen address (updated to `local_addr` after bind, including `:0`).
+    bind: std::sync::RwLock<SocketAddr>,
     host: Arc<dyn MeshHost>,
     peers: RwLock<HashMap<String, PeerSession>>,
     /// Node IDs previously admitted via invite (reconnect without new invite).
@@ -86,7 +87,7 @@ impl MeshService {
         Ok(Arc::new(Self {
             identity,
             noise_kp,
-            bind,
+            bind: std::sync::RwLock::new(bind),
             host,
             peers: RwLock::new(HashMap::new()),
             trusted: RwLock::new(HashMap::new()),
@@ -99,7 +100,10 @@ impl MeshService {
     }
 
     pub fn bind_addr(&self) -> SocketAddr {
-        self.bind
+        *self
+            .bind
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
     }
 
     pub fn node_fingerprint(&self) -> String {
@@ -125,7 +129,7 @@ impl MeshService {
         let blocked = self.blocklist.snapshot().await.blocked_node_ids;
         let public_dht = self.dht.lock().await.config().clone();
         MeshStatus {
-            bind: self.bind.to_string(),
+            bind: self.bind_addr().to_string(),
             node_id: self.node_fingerprint(),
             peer_count: peers.len(),
             peers,
@@ -164,10 +168,25 @@ impl MeshService {
             .collect()
     }
 
-    /// Start accepting inbound mesh connections on `bind`.
+    /// Start accepting inbound mesh connections on the configured bind address.
+    ///
+    /// After a successful bind, `bind_addr()` reflects the OS-assigned address
+    /// (so `127.0.0.1:0` becomes an ephemeral port).
     pub async fn start(self: &Arc<Self>) -> anyhow::Result<()> {
-        let listener = TcpListener::bind(self.bind).await?;
-        info!(%self.bind, "mesh listening (Noise XX)");
+        let mut slot = self.listener.lock().await;
+        if slot.is_some() {
+            anyhow::bail!("mesh listener already running");
+        }
+        let configured = self.bind_addr();
+        let listener = TcpListener::bind(configured).await.map_err(|e| {
+            anyhow::anyhow!("mesh bind {configured} failed: {e}")
+        })?;
+        let actual = listener.local_addr()?;
+        *self
+            .bind
+            .write()
+            .unwrap_or_else(|e| e.into_inner()) = actual;
+        info!(%actual, "mesh listening (Noise XX)");
         let this = Arc::clone(self);
         let handle = tokio::spawn(async move {
             loop {
@@ -187,8 +206,29 @@ impl MeshService {
                 }
             }
         });
-        *self.listener.lock().await = Some(handle);
+        *slot = Some(handle);
         Ok(())
+    }
+
+    /// Stop the accept loop (existing peer sessions stay up until they drop).
+    pub async fn stop_listener(&self) {
+        if let Some(handle) = self.listener.lock().await.take() {
+            handle.abort();
+            // Let the aborted task drop its TcpListener before a rebind.
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+    }
+
+    /// Runtime rebind: abort the accept loop and listen on `bind` without rebuilding
+    /// peer/trust/blocklist/bootstrap/DHT state. Does not restart the HTTP API process.
+    pub async fn rebind(self: &Arc<Self>, bind: SocketAddr) -> anyhow::Result<SocketAddr> {
+        self.stop_listener().await;
+        *self
+            .bind
+            .write()
+            .unwrap_or_else(|e| e.into_inner()) = bind;
+        self.start().await?;
+        Ok(self.bind_addr())
     }
 
     /// Dial a peer and present a mesh invite (required unless already trusted).

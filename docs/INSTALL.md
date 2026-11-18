@@ -82,7 +82,7 @@ Useful variables (see [`.env.example`](../.env.example)):
 | `HORDE_DATA_DIR` | no | Data directory (default `./horde-data`) |
 | `HORDE_HOSTNAME` | no | Friendly host label |
 | `HORDE_BIND` | no | HTTP API bind (default `127.0.0.1:8787`) |
-| `HORDE_MESH_BIND` | no | Mesh listener; omit for local-only mode |
+| `HORDE_MESH_BIND` | no | **Startup** mesh listen address; omit for local-only. Override while running via UI or `POST /v1/admin/mesh/bind` (no restart) |
 | `HORDE_BOOTSTRAP_PEERS` | no | Comma-separated publish-only peer addresses |
 | `HORDE_PUBLIC_DHT` | no | Set `1` only to opt into the public DHT stub (default off) |
 | `HORDE_UI_DIR` | no | Path to operator UI assets (default: resolve `./ui`) |
@@ -147,13 +147,41 @@ curl -s http://127.0.0.1:8787/v1/meta
 
 Static assets under `ui/` are served by `horde-api` at **`http://127.0.0.1:8787/ui/`** (root `/` redirects there). Paste the API key into the top bar. Panels: Host, Nodes, Jobs, Monitor. This is operator control — not an AI studio. Start/stop still uses the scripts above (the browser cannot spawn the binary). Optional `HORDE_UI_DIR` overrides the asset path.
 
-Without `HORDE_MESH_BIND`, the node runs in **local** mode (no mesh reputation effects).
+Without `HORDE_MESH_BIND` (and before a runtime bind), the node runs in **local** mode (no mesh reputation effects).
+
+### Mesh bind (startup vs runtime)
+
+The mesh listener is **not** the HTTP API bind.
+
+| How | What happens |
+|-----|----------------|
+| Env `HORDE_MESH_BIND` | Used **only at process start** as the default listen address |
+| Operator UI | **Host → Mesh bind** (Apply bind) or **Nodes → Set bind** while running |
+| Admin API | `POST /v1/admin/mesh/bind` with body `{ "bind": "host:port" }` |
+
+Runtime changes are a **true rebind**: Horde keeps running and only replaces the mesh accept socket. You do **not** need to restart the process. Examples: `127.0.0.1:0` (ephemeral port), `0.0.0.0:9100`.
+
+```bash
+curl -s -X POST http://127.0.0.1:8787/v1/admin/mesh/bind \
+  -H "Authorization: Bearer <api_key>" \
+  -H 'Content-Type: application/json' \
+  -d '{"bind":"127.0.0.1:0"}'
+```
+
+Check the live redacted view (passphrase is **never** included):
+
+```bash
+curl -s http://127.0.0.1:8787/v1/admin/config \
+  -H "Authorization: Bearer <api_key>"
+```
+
+Look for `mesh_enabled` and `mesh_bind` (the current listen address after any rebind).
 
 ## Invite mesh basics (optional)
 
 Mesh traffic uses a **separate** bind from the HTTP admin/studio API.
 
-1. Start each node with its own data dir, passphrase, API bind, and mesh bind.
+1. Start each node with its own data dir, passphrase, and API bind. Set `HORDE_MESH_BIND` at start **or** enable/rebind later from the UI / `POST /v1/admin/mesh/bind` (see above).
 2. On the inviter, mint a short-lived invite with purpose `mesh_join` via `POST /v1/admin/invites`.
 3. On the joiner, dial with `POST /v1/admin/mesh/join` and body `{ "peer_addr": "<inviter-mesh-addr>", "token": "<invite-token>" }`.
 4. `HORDE_BOOTSTRAP_PEERS` is publish-only — it does **not** grant job authority. Soft trust still requires an invite join.

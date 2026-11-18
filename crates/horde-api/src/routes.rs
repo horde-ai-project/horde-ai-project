@@ -33,6 +33,7 @@ pub fn api_router(state: AppState) -> Router {
         .route("/v1/admin/api-keys", post(create_api_key))
         // Mesh admin (localhost only — not on public overlay)
         .route("/v1/admin/mesh/status", get(mesh_status))
+        .route("/v1/admin/mesh/bind", post(set_mesh_bind))
         .route("/v1/admin/mesh/bootstrap", post(set_bootstrap))
         .route("/v1/admin/mesh/join", post(mesh_join))
         .route("/v1/admin/mesh/blocklist", get(get_blocklist).post(block_peer))
@@ -108,7 +109,15 @@ async fn admin_config(
     State(state): State<AppState>,
     _auth: AdminAuth,
 ) -> Json<crate::PublicRuntimeConfig> {
-    Json(state.public_config.clone())
+    let mut cfg = state.public_config.read().await.clone();
+    // Reflect live mesh listener (runtime rebind / ephemeral ports).
+    if let Some(addr) = state.head.mesh_bind_addr().await {
+        cfg.mesh_bind = Some(addr.to_string());
+        cfg.mesh_enabled = true;
+    } else {
+        cfg.mesh_enabled = false;
+    }
+    Json(cfg)
 }
 
 async fn list_servers(
@@ -179,9 +188,46 @@ async fn mesh_status(State(state): State<AppState>, _auth: AdminAuth) -> ApiResu
         Some(status) => Ok(Json(serde_json::to_value(status).unwrap_or(json!({})))),
         None => Err(crate::error::ApiError::new(
             StatusCode::BAD_REQUEST,
-            "mesh not enabled; set HORDE_MESH_BIND",
+            "mesh not enabled; set HORDE_MESH_BIND or POST /v1/admin/mesh/bind",
         )),
     }
+}
+
+#[derive(serde::Deserialize)]
+struct MeshBindBody {
+    /// Socket address for the mesh listener, e.g. `127.0.0.1:0` or `0.0.0.0:9100`.
+    bind: String,
+}
+
+/// Enable or rebind the mesh listener at runtime (no process restart).
+///
+/// Updates redacted `GET /v1/admin/config` mesh fields. Never accepts a passphrase.
+async fn set_mesh_bind(
+    State(state): State<AppState>,
+    _auth: AdminAuth,
+    Json(body): Json<MeshBindBody>,
+) -> ApiResult<Json<Value>> {
+    let bind: std::net::SocketAddr = body.bind.parse().map_err(|e| {
+        crate::error::ApiError::new(
+            StatusCode::BAD_REQUEST,
+            format!("invalid mesh bind address: {e}"),
+        )
+    })?;
+    let actual = state.head.set_mesh_bind(bind).await.map_err(|e| {
+        crate::error::ApiError::new(StatusCode::BAD_REQUEST, e.to_string())
+    })?;
+    {
+        let mut cfg = state.public_config.write().await;
+        cfg.mesh_bind = Some(actual.to_string());
+        cfg.mesh_enabled = true;
+    }
+    Ok(Json(json!({
+        "ok": true,
+        "mesh_bind": actual.to_string(),
+        "mesh_enabled": true,
+        "rebind": "runtime",
+        "note": "Mesh accept socket rebound in-process; existing peer sessions are retained"
+    })))
 }
 
 #[derive(serde::Deserialize)]

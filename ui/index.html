@@ -72,6 +72,18 @@
         </div>
 
         <article class="block">
+          <h2>Mesh bind</h2>
+          <p class="note">Invite-bounded mesh listener (separate from the HTTP API bind). Changes apply at runtime — no process restart. Passphrase is never sent here.</p>
+          <form id="mesh-bind-form" class="form-row">
+            <label>Address
+              <input id="mesh-bind-input" class="mono" type="text" placeholder="127.0.0.1:0" required autocomplete="off" />
+            </label>
+            <button type="submit" class="btn primary">Apply bind</button>
+          </form>
+          <pre id="mesh-bind-out" class="out" hidden></pre>
+        </article>
+
+        <article class="block">
           <h2>Server limits</h2>
           <form id="limits-form" class="form-grid">
             <label>Server ID
@@ -126,6 +138,13 @@
           <h2>Mesh status</h2>
           <pre id="mesh-status" class="out">Load with API key…</pre>
           <button type="button" class="btn" id="mesh-refresh">Refresh mesh</button>
+          <form id="nodes-mesh-bind-form" class="form-row" style="margin-top: 0.75rem">
+            <label>Mesh bind
+              <input id="nodes-mesh-bind-input" class="mono" type="text" placeholder="0.0.0.0:9100" required autocomplete="off" />
+            </label>
+            <button type="submit" class="btn primary">Set bind</button>
+          </form>
+          <pre id="nodes-mesh-bind-out" class="out" hidden></pre>
         </article>
 
         <div class="grid-2">

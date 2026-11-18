@@ -101,6 +101,9 @@ impl CollectiveHead {
 
     /// Enable invite-bounded Noise mesh listener (admin API stays on its own localhost bind).
     pub async fn enable_mesh(self: &Arc<Self>, bind: SocketAddr) -> anyhow::Result<()> {
+        if self.mesh.read().await.is_some() {
+            anyhow::bail!("mesh already enabled; use set_mesh_bind to rebind");
+        }
         // Network mode: head accepts mesh jobs by default (operator may tighten via limits API).
         if let Some(head) = self.members.read().await.get(&self.head_server_id).cloned() {
             let mut limits = head.limits().await;
@@ -110,9 +113,34 @@ impl CollectiveHead {
         let host: Arc<dyn MeshHost> = Arc::clone(self) as Arc<dyn MeshHost>;
         let mesh = MeshService::new(self.identity.clone(), bind, host)?;
         mesh.start().await?;
+        let actual = mesh.bind_addr();
         *self.mesh.write().await = Some(mesh);
-        info!(%bind, "collective mesh enabled");
+        info!(%actual, "collective mesh enabled");
         Ok(())
+    }
+
+    /// Enable mesh if off, or rebind the existing listener at runtime (no process restart).
+    ///
+    /// Returns the actual listen address (ephemeral ports resolved). Existing peer
+    /// sessions are retained across a rebind; only the accept socket is replaced.
+    pub async fn set_mesh_bind(self: &Arc<Self>, bind: SocketAddr) -> anyhow::Result<SocketAddr> {
+        let existing = self.mesh.read().await.clone();
+        match existing {
+            Some(mesh) => {
+                let actual = mesh.rebind(bind).await?;
+                info!(%actual, "collective mesh rebound");
+                Ok(actual)
+            }
+            None => {
+                self.enable_mesh(bind).await?;
+                let mesh = self.mesh.read().await;
+                let actual = mesh
+                    .as_ref()
+                    .map(|m| m.bind_addr())
+                    .ok_or_else(|| anyhow::anyhow!("mesh enable failed"))?;
+                Ok(actual)
+            }
+        }
     }
 
     pub async fn mesh_status(&self) -> Option<MeshStatus> {
@@ -120,6 +148,10 @@ impl CollectiveHead {
             Some(m) => Some(m.status().await),
             None => None,
         }
+    }
+
+    pub async fn mesh_bind_addr(&self) -> Option<SocketAddr> {
+        self.mesh.read().await.as_ref().map(|m| m.bind_addr())
     }
 
     pub fn node_id(&self) -> String {
@@ -268,7 +300,9 @@ impl CollectiveHead {
     pub async fn set_bootstrap_peers(&self, peers: Vec<BootstrapPeer>) -> ProtocolResult<()> {
         let mesh = self.mesh.read().await;
         let mesh = mesh.as_ref().ok_or_else(|| {
-            ProtocolError::Other("mesh not enabled; set HORDE_MESH_BIND".into())
+            ProtocolError::Other(
+                "mesh not enabled; set HORDE_MESH_BIND or POST /v1/admin/mesh/bind".into(),
+            )
         })?;
         mesh.set_bootstrap(peers).await;
         Ok(())
@@ -278,7 +312,9 @@ impl CollectiveHead {
     pub async fn mesh_join(&self, req: MeshJoinRequest) -> ProtocolResult<MeshPeerInfo> {
         let mesh = self.mesh.read().await;
         let mesh = mesh.as_ref().ok_or_else(|| {
-            ProtocolError::Other("mesh not enabled; set HORDE_MESH_BIND".into())
+            ProtocolError::Other(
+                "mesh not enabled; set HORDE_MESH_BIND or POST /v1/admin/mesh/bind".into(),
+            )
         })?;
         mesh.dial_with_invite(&req.peer_addr, Some(&req.token))
             .await
@@ -287,7 +323,9 @@ impl CollectiveHead {
     pub async fn block_peer(&self, node_id: &str) -> ProtocolResult<()> {
         let mesh = self.mesh.read().await;
         let mesh = mesh.as_ref().ok_or_else(|| {
-            ProtocolError::Other("mesh not enabled; set HORDE_MESH_BIND".into())
+            ProtocolError::Other(
+                "mesh not enabled; set HORDE_MESH_BIND or POST /v1/admin/mesh/bind".into(),
+            )
         })?;
         mesh.block_peer(node_id).await;
         Ok(())
@@ -296,7 +334,9 @@ impl CollectiveHead {
     pub async fn unblock_peer(&self, node_id: &str) -> ProtocolResult<bool> {
         let mesh = self.mesh.read().await;
         let mesh = mesh.as_ref().ok_or_else(|| {
-            ProtocolError::Other("mesh not enabled; set HORDE_MESH_BIND".into())
+            ProtocolError::Other(
+                "mesh not enabled; set HORDE_MESH_BIND or POST /v1/admin/mesh/bind".into(),
+            )
         })?;
         Ok(mesh.blocklist.unblock(node_id).await)
     }
@@ -304,7 +344,9 @@ impl CollectiveHead {
     pub async fn blocklist(&self) -> ProtocolResult<Vec<String>> {
         let mesh = self.mesh.read().await;
         let mesh = mesh.as_ref().ok_or_else(|| {
-            ProtocolError::Other("mesh not enabled; set HORDE_MESH_BIND".into())
+            ProtocolError::Other(
+                "mesh not enabled; set HORDE_MESH_BIND or POST /v1/admin/mesh/bind".into(),
+            )
         })?;
         Ok(mesh.blocklist.snapshot().await.blocked_node_ids)
     }
@@ -312,7 +354,9 @@ impl CollectiveHead {
     pub async fn dht_config(&self) -> ProtocolResult<PublicDhtConfig> {
         let mesh = self.mesh.read().await;
         let mesh = mesh.as_ref().ok_or_else(|| {
-            ProtocolError::Other("mesh not enabled; set HORDE_MESH_BIND".into())
+            ProtocolError::Other(
+                "mesh not enabled; set HORDE_MESH_BIND or POST /v1/admin/mesh/bind".into(),
+            )
         })?;
         Ok(mesh.dht_config().await)
     }
@@ -320,7 +364,9 @@ impl CollectiveHead {
     pub async fn set_dht_config(&self, config: PublicDhtConfig) -> ProtocolResult<PublicDhtConfig> {
         let mesh = self.mesh.read().await;
         let mesh = mesh.as_ref().ok_or_else(|| {
-            ProtocolError::Other("mesh not enabled; set HORDE_MESH_BIND".into())
+            ProtocolError::Other(
+                "mesh not enabled; set HORDE_MESH_BIND or POST /v1/admin/mesh/bind".into(),
+            )
         })?;
         mesh.set_dht_config(config).await?;
         Ok(mesh.dht_config().await)
@@ -329,7 +375,9 @@ impl CollectiveHead {
     pub async fn dht_challenge(&self) -> ProtocolResult<ResourceProofChallenge> {
         let mesh = self.mesh.read().await;
         let mesh = mesh.as_ref().ok_or_else(|| {
-            ProtocolError::Other("mesh not enabled; set HORDE_MESH_BIND".into())
+            ProtocolError::Other(
+                "mesh not enabled; set HORDE_MESH_BIND or POST /v1/admin/mesh/bind".into(),
+            )
         })?;
         mesh.dht_challenge().await
     }
@@ -341,7 +389,9 @@ impl CollectiveHead {
     ) -> ProtocolResult<Vec<String>> {
         let mesh = self.mesh.read().await;
         let mesh = mesh.as_ref().ok_or_else(|| {
-            ProtocolError::Other("mesh not enabled; set HORDE_MESH_BIND".into())
+            ProtocolError::Other(
+                "mesh not enabled; set HORDE_MESH_BIND or POST /v1/admin/mesh/bind".into(),
+            )
         })?;
         mesh.dht_lookup(key, proof).await
     }

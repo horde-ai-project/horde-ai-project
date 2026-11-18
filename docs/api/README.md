@@ -6,7 +6,9 @@ Auth: `Authorization: Bearer <api_key>` on all `/v1/*` routes except `/health` a
 
 Machine-readable contract: [`openapi.yaml`](./openapi.yaml).
 
-Admin/studio HTTP is **localhost / collective-only**. The invite-bounded mesh listens on a **separate** bind (`HORDE_MESH_BIND`) and never carries admin traffic. Public DHT discovery is an **explicit opt-in stub** (default off). Soft reputation is local and non-transferable.
+Admin/studio HTTP is **localhost / collective-only**. The invite-bounded mesh listens on a **separate** bind and never carries admin traffic. Public DHT discovery is an **explicit opt-in stub** (default off). Soft reputation is local and non-transferable.
+
+**Mesh bind:** env `HORDE_MESH_BIND` is the **startup** default. While running, enable or rebind with `POST /v1/admin/mesh/bind` (true runtime rebind — no process restart) or the operator UI (**Host → Mesh bind** / **Nodes → Set bind**). `GET /v1/admin/config` returns the current redacted bind (`mesh_bind`, `mesh_enabled`) and **never** the passphrase.
 
 ## Concepts
 
@@ -41,7 +43,7 @@ Admin/studio HTTP is **localhost / collective-only**. The invite-bounded mesh li
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/v1/admin/status` | Collective overview + members (+ mesh status) |
-| GET | `/v1/admin/config` | Redacted runtime config (bind, data_dir, mesh flags — **never** passphrase) |
+| GET | `/v1/admin/config` | Redacted runtime config (HTTP bind, data_dir, live `mesh_bind` / `mesh_enabled` — **never** passphrase) |
 | GET | `/v1/admin/servers` | List physical servers |
 | POST | `/v1/admin/servers/{server_id}/limits` | Set GPU %, time window, disk, flags |
 | GET | `/v1/admin/support-matrix` | Workload gates (backends / VRAM / shardable) |
@@ -50,6 +52,7 @@ Admin/studio HTTP is **localhost / collective-only**. The invite-bounded mesh li
 | POST | `/v1/admin/invites/redeem` | Redeem invite (collective join bookkeeping) |
 | POST | `/v1/admin/api-keys` | Create an additional studio API key |
 | GET | `/v1/admin/mesh/status` | Mesh bind, peers, bootstrap, blocklist, DHT flag |
+| POST | `/v1/admin/mesh/bind` | Enable or **runtime-rebind** mesh listen address (`{ "bind": "host:port" }`; no process restart; never passphrase) |
 | POST | `/v1/admin/mesh/bootstrap` | Replace publish-only bootstrap peer list |
 | POST | `/v1/admin/mesh/join` | Dial peer with mesh invite token |
 | GET\|POST | `/v1/admin/mesh/blocklist` | List / block |
@@ -103,6 +106,34 @@ Admin/studio HTTP is **localhost / collective-only**. The invite-bounded mesh li
 | `tokenize` | **yes** | Requires `tokenizer_revision`; deterministic chunks |
 | `embed` | **yes** | Requires `tokenizer_revision`; stub checksum path |
 | `video_generate` | no | Hard gate: CUDA/ROCm + ≥12288 MiB; stub rejects |
+
+## Mesh bind body
+
+Enable mesh if it was off, or rebind the accept socket **in-process** (no restart). Overrides the startup `HORDE_MESH_BIND` for the running process. Same action as Host → Mesh bind / Nodes → Set bind in `/ui/`.
+
+```bash
+curl -s -X POST http://127.0.0.1:8787/v1/admin/mesh/bind \
+  -H "Authorization: Bearer <api_key>" \
+  -H 'Content-Type: application/json' \
+  -d '{"bind":"127.0.0.1:0"}'
+```
+
+```json
+{ "bind": "127.0.0.1:0" }
+```
+
+Successful response includes the actual listen address (ephemeral `:0` is resolved), for example:
+
+```json
+{
+  "ok": true,
+  "mesh_bind": "127.0.0.1:54321",
+  "mesh_enabled": true,
+  "rebind": "runtime"
+}
+```
+
+Then `GET /v1/admin/config` reflects the same `mesh_bind` / `mesh_enabled` values. Passphrase is never accepted on this route and never returned from config.
 
 ## Soft reputation body
 

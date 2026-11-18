@@ -82,10 +82,40 @@ Every job must pin `model_id` + `revision_hash`.
 
 ## 5. Optional: join an invite mesh
 
-1. Set `HORDE_MESH_BIND` on each node (separate from the HTTP API bind).
-2. Inviter mints `purpose: "mesh_join"` via `POST /v1/admin/invites`.
-3. Joiner dials `POST /v1/admin/mesh/join` with the peer mesh address and invite token.
-4. Bootstrap peers are publish-only; invite join is still required for soft trust.
+Mesh traffic uses its **own** listen address (not `HORDE_BIND`).
+
+### Set the mesh bind
+
+**At start (env default):**
+
+```bash
+export HORDE_MESH_BIND=127.0.0.1:9797
+```
+
+Omit it to stay in local-only mode until you enable mesh later.
+
+**While Horde is already running (no process restart):**
+
+1. Open `http://127.0.0.1:8787/ui/` and paste your API key.
+2. On **Host**, use **Mesh bind** → enter `host:port` (for example `127.0.0.1:0` or `0.0.0.0:9100`) → **Apply bind**.
+3. Or on **Nodes**, use **Set bind** the same way.
+
+Same change over HTTP:
+
+```bash
+curl -s -X POST http://127.0.0.1:8787/v1/admin/mesh/bind \
+  -H "Authorization: Bearer <api_key>" \
+  -H 'Content-Type: application/json' \
+  -d '{"bind":"127.0.0.1:0"}'
+```
+
+`HORDE_MESH_BIND` is only the **startup** default. A runtime bind overrides it for the running process. Host status reads redacted `GET /v1/admin/config` (current `mesh_bind` / `mesh_enabled`). The passphrase is never sent or shown over HTTP.
+
+### Invite and dial
+
+1. Inviter mints `purpose: "mesh_join"` via `POST /v1/admin/invites` (or Nodes → Mint invite).
+2. Joiner dials `POST /v1/admin/mesh/join` with the peer mesh address and invite token.
+3. Bootstrap peers are publish-only; invite join is still required for soft trust.
 
 Quick demo script: `./scripts/demo-two-node.sh`.
 

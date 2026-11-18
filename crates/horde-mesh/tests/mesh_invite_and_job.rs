@@ -108,13 +108,7 @@ fn ephemeral_addr() -> SocketAddr {
 }
 
 async fn bind_mesh(host: Arc<TestHost>) -> Arc<MeshService> {
-    // Bind :0 then rebuild is awkward; pick a free port via TcpListener.
-    let listener = tokio::net::TcpListener::bind(ephemeral_addr())
-        .await
-        .unwrap();
-    let addr = listener.local_addr().unwrap();
-    drop(listener);
-    let mesh = MeshService::new(host.keys.clone(), addr, host).unwrap();
+    let mesh = MeshService::new(host.keys.clone(), ephemeral_addr(), host).unwrap();
     mesh.start().await.unwrap();
     // tiny settle for accept loop
     tokio::time::sleep(std::time::Duration::from_millis(20)).await;
@@ -126,18 +120,7 @@ async fn reject_connection_without_invite() {
     let host_a = Arc::new(TestHost::new("a"));
     let host_b = Arc::new(TestHost::new("b"));
     let mesh_a = bind_mesh(Arc::clone(&host_a)).await;
-    let mesh_b = MeshService::new(
-        host_b.keys.clone(),
-        {
-            let l = tokio::net::TcpListener::bind(ephemeral_addr()).await.unwrap();
-            let a = l.local_addr().unwrap();
-            drop(l);
-            a
-        },
-        host_b,
-    )
-    .unwrap();
-    mesh_b.start().await.unwrap();
+    let mesh_b = bind_mesh(host_b).await;
 
     let err = mesh_b
         .dial_with_invite(&mesh_a.bind_addr().to_string(), None)
@@ -221,6 +204,23 @@ async fn invite_join_and_cross_node_job() {
         result.attestation.model_fingerprint.model_id,
         "stub/echo"
     );
+}
+
+#[tokio::test]
+async fn runtime_rebind_keeps_accepting() {
+    let host = Arc::new(TestHost::new("rebind"));
+    let host_trait: Arc<dyn MeshHost> = Arc::clone(&host) as Arc<dyn MeshHost>;
+    let mesh = MeshService::new(host.keys.clone(), ephemeral_addr(), host_trait).unwrap();
+    mesh.start().await.unwrap();
+    let first = mesh.bind_addr();
+    assert_ne!(first.port(), 0);
+
+    let second = mesh.rebind(ephemeral_addr()).await.expect("rebind");
+    assert_ne!(second.port(), 0);
+    // Accept loop must be live on the new address (connect succeeds at TCP layer).
+    tokio::net::TcpStream::connect(second)
+        .await
+        .expect("new bind accepts TCP");
 }
 
 #[tokio::test]

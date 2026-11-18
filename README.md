@@ -90,9 +90,23 @@ curl -s -X POST http://127.0.0.1:8787/v1/admin/reputation/<node_id>/priority `
 
 ## Run two nodes (invite mesh — default)
 
-Set `HORDE_MESH_BIND` on each node, mint a `mesh_join` invite, dial with `/v1/admin/mesh/join`. Bootstrap peers (`HORDE_BOOTSTRAP_PEERS`) are publish-only.
+Mesh listens on a **separate** address from the HTTP API.
 
-See `docs/api/README.md` and `scripts/demo-two-node.sh`.
+1. **Startup default:** set `HORDE_MESH_BIND` (for example `127.0.0.1:9797`) before start, **or** leave it unset and enable later.
+2. **While running:** change or enable the bind without restarting — operator UI **Host → Mesh bind** or **Nodes → Set bind**, or:
+
+```bash
+curl -s -X POST http://127.0.0.1:8787/v1/admin/mesh/bind \
+  -H "Authorization: Bearer $HORDE_API_KEY" \
+  -H 'Content-Type: application/json' \
+  -d '{"bind":"127.0.0.1:0"}'
+```
+
+That is a **true runtime rebind** (in-process). `GET /v1/admin/config` shows the current redacted bind (`mesh_bind` / `mesh_enabled`) and **never** the passphrase.
+
+3. Mint a `mesh_join` invite, dial with `/v1/admin/mesh/join`. Bootstrap peers (`HORDE_BOOTSTRAP_PEERS`) are publish-only.
+
+See `docs/api/README.md`, `docs/INSTALL.md`, and `scripts/demo-two-node.sh`.
 
 ## Tokenisation job (Phase C)
 

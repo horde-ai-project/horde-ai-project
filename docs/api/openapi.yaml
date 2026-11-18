@@ -6,7 +6,9 @@ info:
     Phase D localhost admin/studio API for the Horde invite-bounded P2P GPU substrate.
     Soft non-transferable reputation / fair-share + optional priority hints among invite-trusted peers.
     Tokenisation jobs chunk under pinned fingerprints. Public DHT is an explicit opt-in stub
-    (invite-only remains default). Mesh overlay uses a separate bind (HORDE_MESH_BIND).
+    (invite-only remains default). Mesh overlay uses a separate bind: HORDE_MESH_BIND is the
+    startup default; POST /v1/admin/mesh/bind (or Host/Nodes in /ui/) enables or runtime-rebinds
+    without process restart. GET /v1/admin/config is redacted (never passphrase).
     No built-in AI studio. No cryptocurrency / credits.
   contact:
     name: Adam Webber
@@ -68,7 +70,9 @@ paths:
     get:
       tags: [admin]
       summary: Redacted runtime config for the operator UI
-      description: Bind address, data dir, mesh flags. Never includes passphrase.
+      description: |
+        Bind address, data dir, mesh flags (live mesh_bind after runtime rebind).
+        Never includes passphrase.
       responses:
         "200":
           description: Public runtime config
@@ -228,6 +232,56 @@ paths:
               schema:
                 type: object
                 additionalProperties: true
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /v1/admin/mesh/bind:
+    post:
+      tags: [mesh, admin]
+      summary: Enable or runtime-rebind the mesh listen address
+      description: |
+        Body: `{ "bind": "host:port" }` (for example `127.0.0.1:0` or `0.0.0.0:9100`).
+
+        Starts the invite-bounded mesh listener if it was off, or rebinds the
+        accept socket in-process (true runtime rebind — no process restart).
+        Overrides startup `HORDE_MESH_BIND` for the running process. Existing
+        peer sessions are retained. Same action as operator UI Host → Mesh bind
+        or Nodes → Set bind. Never accepts or returns a passphrase. Updates
+        redacted GET /v1/admin/config (`mesh_bind`, `mesh_enabled`).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [bind]
+              properties:
+                bind:
+                  type: string
+                  description: Socket address, e.g. 127.0.0.1:0 or 0.0.0.0:9100
+                  example: "127.0.0.1:0"
+            example:
+              bind: "127.0.0.1:0"
+      responses:
+        "200":
+          description: Mesh listening on the (possibly ephemeral) address
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  mesh_bind:
+                    type: string
+                  mesh_enabled:
+                    type: boolean
+                  rebind:
+                    type: string
+                    example: runtime
+                  note:
+                    type: string
         "400":
           $ref: "#/components/responses/Error"
         "401":
