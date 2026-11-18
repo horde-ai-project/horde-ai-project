@@ -1,0 +1,20 @@
+/* Graphite industrial */
+:root {
+  --bg-0: #eceff2;
+  --bg-1: #d5d9de;
+  --bg-glow: rgba(60, 70, 80, 0.18);
+  --fg: #1c2128;
+  --muted: #5c6773;
+  --brand: #242b33;
+  --accent: #3d4a57;
+  --accent-fg: #f5f7fa;
+  --surface: rgba(255, 255, 255, 0.84);
+  --input-bg: #f8f9fb;
+  --code-bg: #e4e8ec;
+  --border: #c0c7cf;
+  --table-head: #e6eaee;
+  --row-hover: rgba(61, 74, 87, 0.07);
+  --ok: #2f7a4d;
+  --bad: #b42318;
+  --warn: #8f6a00;
+}

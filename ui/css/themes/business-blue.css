@@ -1,0 +1,20 @@
+/* Common business blues and whites */
+:root {
+  --bg-0: #f5f8fc;
+  --bg-1: #e7eef8;
+  --bg-glow: rgba(37, 99, 176, 0.14);
+  --fg: #152238;
+  --muted: #5b6b82;
+  --brand: #1e3a6e;
+  --accent: #2563b0;
+  --accent-fg: #ffffff;
+  --surface: rgba(255, 255, 255, 0.92);
+  --input-bg: #ffffff;
+  --code-bg: #edf2f8;
+  --border: #c5d0e0;
+  --table-head: #e8eef7;
+  --row-hover: rgba(37, 99, 176, 0.06);
+  --ok: #1f7a45;
+  --bad: #b42318;
+  --warn: #9a6700;
+}

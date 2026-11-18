@@ -6,7 +6,7 @@ Copyright (c) 2026 Adam Webber.
 
 ## What Horde is
 
-Invite-bounded **P2P GPU compute** for AI studios. Studios call the HTTP API. Horde does not ship a studio UI and does not use cryptocurrency.
+Invite-bounded **P2P GPU compute** for AI studios. Studios call the HTTP API. Horde ships a **localhost operator UI** (Host / Nodes / Jobs / Monitor) — not an AI studio — and does not use cryptocurrency.
 
 ## 1. Install Rust
 
@@ -51,6 +51,8 @@ Copy the studio API key from the startup log. Check liveness:
 ```bash
 curl -s http://127.0.0.1:8787/health
 ```
+
+Open the operator UI at `http://127.0.0.1:8787/ui/` and paste the API key. Or use `./scripts/horde-start.sh` / `.\scripts\horde-start.ps1` (optional browser open via `HORDE_OPEN_BROWSER=1`).
 
 ## 4. Call the API
 

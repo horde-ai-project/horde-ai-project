@@ -1,0 +1,20 @@
+/* Default: cool slate + teal */
+:root {
+  --bg-0: #eef3f6;
+  --bg-1: #d9e4ea;
+  --bg-glow: rgba(20, 140, 140, 0.18);
+  --fg: #1a2430;
+  --muted: #5a6b78;
+  --brand: #0f3d3e;
+  --accent: #0f766e;
+  --accent-fg: #f4fffd;
+  --surface: rgba(255, 255, 255, 0.78);
+  --input-bg: #f7fbfc;
+  --code-bg: #e7eef2;
+  --border: #c2d0d8;
+  --table-head: #e4eef2;
+  --row-hover: rgba(15, 118, 110, 0.06);
+  --ok: #0f7a4d;
+  --bad: #b42318;
+  --warn: #9a6700;
+}

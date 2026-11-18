@@ -1,0 +1,20 @@
+/* Warm sandstone (not cream/terracotta AI default) */
+:root {
+  --bg-0: #f2eee6;
+  --bg-1: #e2d8c6;
+  --bg-glow: rgba(130, 100, 50, 0.14);
+  --fg: #2a2418;
+  --muted: #6d6454;
+  --brand: #3f3524;
+  --accent: #7a6540;
+  --accent-fg: #fffaf0;
+  --surface: rgba(255, 252, 246, 0.88);
+  --input-bg: #fffcf7;
+  --code-bg: #ebe4d6;
+  --border: #c9bda6;
+  --table-head: #ebe4d7;
+  --row-hover: rgba(122, 101, 64, 0.08);
+  --ok: #3f6e3a;
+  --bad: #9b2c1f;
+  --warn: #8a6412;
+}

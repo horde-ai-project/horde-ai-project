@@ -1,0 +1,20 @@
+/* High-contrast ink on paper */
+:root {
+  --bg-0: #f7f7f5;
+  --bg-1: #ebebe6;
+  --bg-glow: rgba(20, 20, 20, 0.08);
+  --fg: #111111;
+  --muted: #555555;
+  --brand: #000000;
+  --accent: #222222;
+  --accent-fg: #ffffff;
+  --surface: rgba(255, 255, 255, 0.94);
+  --input-bg: #ffffff;
+  --code-bg: #efefec;
+  --border: #c8c8c2;
+  --table-head: #efefec;
+  --row-hover: rgba(0, 0, 0, 0.04);
+  --ok: #116329;
+  --bad: #82071e;
+  --warn: #7d4e00;
+}

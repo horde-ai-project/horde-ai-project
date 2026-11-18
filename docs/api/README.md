@@ -34,12 +34,14 @@ Admin/studio HTTP is **localhost / collective-only**. The invite-bounded mesh li
 |--------|------|-------------|
 | GET | `/health` | Liveness |
 | GET | `/v1/meta` | Product/mode/node id (+ mesh + `public_dht_enabled` + `soft_reputation`) |
+| GET | `/` → `/ui/` | Operator UI redirect (static assets under `/ui/*`) |
 
 ### Admin (localhost / collective)
 
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/v1/admin/status` | Collective overview + members (+ mesh status) |
+| GET | `/v1/admin/config` | Redacted runtime config (bind, data_dir, mesh flags — **never** passphrase) |
 | GET | `/v1/admin/servers` | List physical servers |
 | POST | `/v1/admin/servers/{server_id}/limits` | Set GPU %, time window, disk, flags |
 | GET | `/v1/admin/support-matrix` | Workload gates (backends / VRAM / shardable) |
@@ -62,6 +64,7 @@ Admin/studio HTTP is **localhost / collective-only**. The invite-bounded mesh li
 
 | Method | Path | Description |
 |--------|------|-------------|
+| GET | `/v1/jobs` | List recent jobs (`?limit=`, default 50, max 500) |
 | POST | `/v1/jobs` | Create job → local and/or mesh schedule |
 | GET | `/v1/jobs/{job_id}` | Job status |
 | GET | `/v1/jobs/{job_id}/result` | Result + worker attestation (when succeeded) |

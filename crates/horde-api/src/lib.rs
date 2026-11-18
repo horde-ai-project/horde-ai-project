@@ -1,7 +1,8 @@
-//! Localhost HTTP API: admin collective controls + studio job surface.
+//! Localhost HTTP API: admin collective controls + studio job surface + operator UI.
 //!
 //! Admin/control plane binds to loopback (or collective-only). Mesh overlay uses a
 //! separate bind (`HORDE_MESH_BIND`) and never carries admin traffic.
+//! Static operator UI assets live under `/ui` (see repo `ui/`).
 
 mod auth;
 mod error;
@@ -11,18 +12,34 @@ use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use axum::response::Redirect;
+use axum::routing::get;
 use axum::Router;
 use horde_collective::CollectiveHead;
 use horde_protocol::{BootstrapPeer, DEFAULT_API_BIND};
+use serde::Serialize;
 use tower_http::cors::CorsLayer;
+use tower_http::services::ServeDir;
 use tower_http::trace::TraceLayer;
-use tracing::info;
+use tracing::{info, warn};
 
 pub use routes::api_router;
+
+/// Redacted runtime config for the operator UI (never includes passphrase).
+#[derive(Clone, Debug, Serialize)]
+pub struct PublicRuntimeConfig {
+    pub bind: String,
+    pub data_dir: String,
+    pub hostname: String,
+    pub mesh_bind: Option<String>,
+    pub mesh_enabled: bool,
+    pub ui_path: String,
+}
 
 #[derive(Clone)]
 pub struct AppState {
     pub head: Arc<CollectiveHead>,
+    pub public_config: PublicRuntimeConfig,
 }
 
 pub struct ApiConfig {
@@ -34,6 +51,8 @@ pub struct ApiConfig {
     pub mesh_bind: Option<SocketAddr>,
     /// Publish-only bootstrap peer list (not a job authority).
     pub bootstrap_peers: Vec<BootstrapPeer>,
+    /// Directory of static operator UI assets (`index.html`, CSS, JS).
+    pub ui_dir: PathBuf,
 }
 
 impl ApiConfig {
@@ -80,6 +99,7 @@ impl ApiConfig {
                     .collect()
             })
             .unwrap_or_default();
+        let ui_dir = resolve_ui_dir();
         Ok(Self {
             data_dir,
             passphrase,
@@ -87,11 +107,44 @@ impl ApiConfig {
             bind,
             mesh_bind,
             bootstrap_peers,
+            ui_dir,
         })
     }
 }
 
+/// Locate static operator UI assets.
+///
+/// Order: `HORDE_UI_DIR`, then common relative paths from the process CWD / crate.
+pub fn resolve_ui_dir() -> PathBuf {
+    if let Ok(p) = std::env::var("HORDE_UI_DIR") {
+        return PathBuf::from(p);
+    }
+    let manifest_ui = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../ui");
+    let candidates = [
+        PathBuf::from("ui"),
+        PathBuf::from("./ui"),
+        PathBuf::from("../ui"),
+        PathBuf::from("../../ui"),
+        manifest_ui,
+    ];
+    for c in candidates {
+        if c.join("index.html").is_file() {
+            return c;
+        }
+    }
+    PathBuf::from("ui")
+}
+
 pub async fn build_app(config: ApiConfig) -> anyhow::Result<(Router, AppState, String)> {
+    let ui_dir = config.ui_dir.clone();
+    let public_config = PublicRuntimeConfig {
+        bind: config.bind.to_string(),
+        data_dir: config.data_dir.display().to_string(),
+        hostname: config.hostname.clone(),
+        mesh_bind: config.mesh_bind.map(|a| a.to_string()),
+        mesh_enabled: config.mesh_bind.is_some(),
+        ui_path: ui_dir.display().to_string(),
+    };
     let head = CollectiveHead::bootstrap(config.data_dir, &config.passphrase, config.hostname)?;
     if let Some(mesh_bind) = config.mesh_bind {
         head.enable_mesh(mesh_bind).await?;
@@ -100,8 +153,23 @@ pub async fn build_app(config: ApiConfig) -> anyhow::Result<(Router, AppState, S
         }
     }
     let api_key = head.ensure_dev_api_key().await;
-    let state = AppState { head };
+    let state = AppState {
+        head,
+        public_config,
+    };
+    let ui_index = ui_dir.join("index.html");
+    if !ui_index.is_file() {
+        warn!(
+            ui_dir = %ui_dir.display(),
+            "operator UI assets not found; /ui will 404 until ui/ is present or HORDE_UI_DIR is set"
+        );
+    } else {
+        info!(ui_dir = %ui_dir.display(), "serving operator UI at /ui");
+    }
+    let static_ui = ServeDir::new(&ui_dir).append_index_html_on_directories(true);
     let app = api_router(state.clone())
+        .route("/", get(|| async { Redirect::temporary("/ui/") }))
+        .nest_service("/ui", static_ui)
         .layer(TraceLayer::new_for_http())
         .layer(CorsLayer::permissive());
     Ok((app, state, api_key))
@@ -124,6 +192,7 @@ pub async fn serve(config: ApiConfig) -> anyhow::Result<()> {
         "horde API listening (admin localhost; mesh optional)"
     );
     info!(%api_key, "studio API key (Authorization: Bearer <key>)");
+    info!(ui = %format!("http://{bind}/ui/"), "operator UI");
     let listener = tokio::net::TcpListener::bind(bind).await?;
     axum::serve(listener, app).await?;
     Ok(())

@@ -85,8 +85,10 @@ Useful variables (see [`.env.example`](../.env.example)):
 | `HORDE_MESH_BIND` | no | Mesh listener; omit for local-only mode |
 | `HORDE_BOOTSTRAP_PEERS` | no | Comma-separated publish-only peer addresses |
 | `HORDE_PUBLIC_DHT` | no | Set `1` only to opt into the public DHT stub (default off) |
+| `HORDE_UI_DIR` | no | Path to operator UI assets (default: resolve `./ui`) |
+| `HORDE_OPEN_BROWSER` | no | `1` / `true` opens the UI when using start scripts |
 
-Horde does not auto-load `.env` files. Export the variables in your shell (or use your own env loader) before starting the binary.
+The `horde` binary does not auto-load `.env`. Export variables in your shell, or use `scripts/horde-start.*` which source `.env` when present.
 
 ### Set the passphrase
 
@@ -114,6 +116,20 @@ Use the **same** passphrase every time you reopen an existing `HORDE_DATA_DIR`, 
 cargo run -p horde-api
 ```
 
+Or use the host launcher scripts (load `.env`, write `horde.pid` / `horde.log`):
+
+```bash
+./scripts/horde-start.sh
+./scripts/horde-stop.sh
+```
+
+```powershell
+.\scripts\horde-start.ps1
+.\scripts\horde-stop.ps1
+```
+
+Set `HORDE_OPEN_BROWSER=1` (or `-OpenBrowser` on PowerShell) to open the operator UI automatically.
+
 On startup the log prints a studio API key. Use it as:
 
 `Authorization: Bearer <api_key>`
@@ -126,6 +142,10 @@ Quick check:
 curl -s http://127.0.0.1:8787/health
 curl -s http://127.0.0.1:8787/v1/meta
 ```
+
+### Operator UI
+
+Static assets under `ui/` are served by `horde-api` at **`http://127.0.0.1:8787/ui/`** (root `/` redirects there). Paste the API key into the top bar. Panels: Host, Nodes, Jobs, Monitor. This is operator control — not an AI studio. Start/stop still uses the scripts above (the browser cannot spawn the binary). Optional `HORDE_UI_DIR` overrides the asset path.
 
 Without `HORDE_MESH_BIND`, the node runs in **local** mode (no mesh reputation effects).
 

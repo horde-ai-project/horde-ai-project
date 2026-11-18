@@ -1,0 +1,20 @@
+/* Ocean cyan */
+:root {
+  --bg-0: #e9f4f7;
+  --bg-1: #cfe4ec;
+  --bg-glow: rgba(14, 116, 144, 0.16);
+  --fg: #12303a;
+  --muted: #4f6b75;
+  --brand: #0b4f5c;
+  --accent: #0e7490;
+  --accent-fg: #f0fcff;
+  --surface: rgba(255, 255, 255, 0.82);
+  --input-bg: #f5fbfd;
+  --code-bg: #dfeef3;
+  --border: #b4cdd6;
+  --table-head: #e0eef3;
+  --row-hover: rgba(14, 116, 144, 0.07);
+  --ok: #1f7a4d;
+  --bad: #b42318;
+  --warn: #9a6700;
+}

@@ -14,7 +14,34 @@ Earlier phases: invite-bounded Noise mesh (B); tokenisation chunking + support m
 | `horde-node` | `crates/horde-node` | Physical server agent + keystore + stub executor |
 | `horde-mesh` | `crates/horde-mesh` | Noise XX peer channels, invite gate, fair-share peer pick |
 | `horde-collective` | `crates/horde-collective` | Logical node head, scheduling, reputation ledger |
-| `horde-api` | `crates/horde-api` | HTTP API binary `horde` |
+| `horde-api` | `crates/horde-api` | HTTP API binary `horde` + operator UI at `/ui` |
+| static UI | `ui/` | Localhost operator panels (Host / Nodes / Jobs / Monitor) |
+
+## Operator UI
+
+Horde ships a **localhost browser operator UI** (not an AI studio). After the API is up, open `http://127.0.0.1:8787/ui/` and paste the studio API key from the startup log.
+
+Four panels: **Host** (status + limits + theme), **Nodes** (invite mesh), **Jobs** (thin submit/poll), **Monitor** (health + soft reputation).
+
+Start/stop the process with host scripts (they read `.env`; they do not accept a passphrase over HTTP):
+
+```bash
+# Unix
+cp .env.example .env   # set HORDE_PASSPHRASE
+./scripts/horde-start.sh
+# optional: HORDE_OPEN_BROWSER=1 ./scripts/horde-start.sh
+./scripts/horde-stop.sh
+```
+
+```powershell
+# Windows
+Copy-Item .env.example .env   # set HORDE_PASSPHRASE
+.\scripts\horde-start.ps1
+# optional: .\scripts\horde-start.ps1 -OpenBrowser
+.\scripts\horde-stop.ps1
+```
+
+Stylesheets: Host panel theme picker (coffee, business blue/white, and others). No Tauri shell in MVP.
 
 ## Build & test
 
@@ -77,7 +104,7 @@ Default: **disabled** (invite-only). Env `HORDE_PUBLIC_DHT=1` or `POST /v1/admin
 
 ## Studio integration
 
-AI studios call the HTTP API; they do **not** embed Horde UI.
+AI studios call the HTTP API. The `/ui` operator shell is for node operators only — it is **not** a built-in AI studio.
 
 Every job **must** pin a `model_id` + `revision_hash`. Results include a worker Ed25519 attestation (audit, not payment). Accept/reject updates soft reputation for mesh peers only.
 

@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="slate-teal">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Horde Operator</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Sora:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/ui/css/app.css" id="theme-base" />
+  <link rel="stylesheet" href="/ui/css/themes/slate-teal.css" id="theme-sheet" />
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="app-shell">
+    <header class="topbar">
+      <div class="brand-block">
+        <p class="brand">Horde</p>
+        <p class="brand-sub">Operator control</p>
+      </div>
+      <nav class="nav" aria-label="Operator panels">
+        <button type="button" class="nav-btn is-active" data-panel="host">Host</button>
+        <button type="button" class="nav-btn" data-panel="nodes">Nodes</button>
+        <button type="button" class="nav-btn" data-panel="jobs">Jobs</button>
+        <button type="button" class="nav-btn" data-panel="monitor">Monitor</button>
+      </nav>
+      <div class="auth-bar">
+        <label class="field-inline">
+          <span>API key</span>
+          <input id="api-key" type="password" autocomplete="off" spellcheck="false" placeholder="Bearer key from startup log" />
+        </label>
+        <button type="button" id="save-key" class="btn">Save</button>
+        <span id="conn-pill" class="pill" data-state="unknown">offline</span>
+      </div>
+    </header>
+
+    <main id="main" class="main">
+      <!-- HOST -->
+      <section id="panel-host" class="panel is-active" aria-labelledby="host-title">
+        <header class="panel-head">
+          <h1 id="host-title">Host</h1>
+          <p>Local node status, resource limits, and how to start or stop the process.</p>
+        </header>
+
+        <div class="grid-2">
+          <article class="block">
+            <h2>Status</h2>
+            <dl class="kv" id="host-status">
+              <div><dt>Health</dt><dd id="host-health">—</dd></div>
+              <div><dt>Mode</dt><dd id="host-mode">—</dd></div>
+              <div><dt>Node ID</dt><dd id="host-node-id" class="mono">—</dd></div>
+              <div><dt>Members</dt><dd id="host-members">—</dd></div>
+              <div><dt>Jobs</dt><dd id="host-jobs">—</dd></div>
+              <div><dt>API bind</dt><dd id="host-bind" class="mono">—</dd></div>
+              <div><dt>Data dir</dt><dd id="host-data-dir" class="mono">—</dd></div>
+              <div><dt>Mesh</dt><dd id="host-mesh">—</dd></div>
+            </dl>
+            <button type="button" class="btn" id="host-refresh">Refresh</button>
+          </article>
+
+          <article class="block">
+            <h2>Start / stop</h2>
+            <p class="note">Process lifecycle stays on the host. Use the launcher scripts; the browser cannot start the binary.</p>
+            <ul class="plain-list">
+              <li><span class="mono">scripts/horde-start.sh</span> / <span class="mono">horde-stop.sh</span> (Unix)</li>
+              <li><span class="mono">scripts/horde-start.ps1</span> / <span class="mono">horde-stop.ps1</span> (Windows)</li>
+              <li>Optional: <span class="mono">horde-start.bat</span> / <span class="mono">horde-stop.bat</span></li>
+            </ul>
+            <p class="note">Copy <span class="mono">.env.example</span> → <span class="mono">.env</span>, set <span class="mono">HORDE_PASSPHRASE</span>, then start. Passphrase is never accepted over HTTP.</p>
+            <p class="note">UI URL after start: <span class="mono" id="host-ui-url">http://127.0.0.1:8787/ui/</span></p>
+          </article>
+        </div>
+
+        <article class="block">
+          <h2>Server limits</h2>
+          <form id="limits-form" class="form-grid">
+            <label>Server ID
+              <select id="limits-server" required></select>
+            </label>
+            <label>GPU %
+              <input id="limits-gpu" type="number" min="1" max="100" value="100" required />
+            </label>
+            <label>Window start hour
+              <input id="limits-start" type="number" min="0" max="23" value="0" required />
+            </label>
+            <label>Window end hour
+              <input id="limits-end" type="number" min="1" max="24" value="24" required />
+            </label>
+            <label>Disk budget (MiB)
+              <input id="limits-disk" type="number" min="1" value="50000" required />
+            </label>
+            <label class="check"><input id="limits-network" type="checkbox" /> Accept network jobs</label>
+            <label class="check"><input id="limits-enabled" type="checkbox" checked /> Enabled</label>
+            <div class="form-actions">
+              <button type="submit" class="btn primary">Save limits</button>
+            </div>
+          </form>
+          <pre id="limits-out" class="out" hidden></pre>
+        </article>
+
+        <article class="block">
+          <h2>Theme</h2>
+          <label>Stylesheet
+            <select id="theme-select"></select>
+          </label>
+        </article>
+
+        <article class="block">
+          <h2>Extra API key</h2>
+          <form id="api-key-form" class="form-row">
+            <label>Label <input id="api-key-label" type="text" value="operator" required /></label>
+            <button type="submit" class="btn">Mint key</button>
+          </form>
+          <pre id="api-key-out" class="out" hidden></pre>
+        </article>
+      </section>
+
+      <!-- NODES -->
+      <section id="panel-nodes" class="panel" aria-labelledby="nodes-title" hidden>
+        <header class="panel-head">
+          <h1 id="nodes-title">Nodes</h1>
+          <p>Invite-bounded mesh: peers, invites, join, and blocklist. Not a public discovery browser.</p>
+        </header>
+
+        <article class="block">
+          <h2>Mesh status</h2>
+          <pre id="mesh-status" class="out">Load with API key…</pre>
+          <button type="button" class="btn" id="mesh-refresh">Refresh mesh</button>
+        </article>
+
+        <div class="grid-2">
+          <article class="block">
+            <h2>Mint invite</h2>
+            <form id="mint-form" class="form-grid">
+              <label>Purpose
+                <select id="mint-purpose">
+                  <option value="mesh_join">mesh_join</option>
+                  <option value="collective_join">collective_join</option>
+                </select>
+              </label>
+              <label>TTL (seconds)
+                <input id="mint-ttl" type="number" min="60" value="3600" />
+              </label>
+              <label>Note
+                <input id="mint-note" type="text" placeholder="optional" />
+              </label>
+              <div class="form-actions">
+                <button type="submit" class="btn primary">Mint</button>
+              </div>
+            </form>
+            <p class="note warn">Plaintext token is shown once — copy it now.</p>
+            <pre id="mint-out" class="out" hidden></pre>
+          </article>
+
+          <article class="block">
+            <h2>Join with invite</h2>
+            <form id="join-form" class="form-grid">
+              <label>Peer mesh address
+                <input id="join-addr" type="text" placeholder="127.0.0.1:9797" required />
+              </label>
+              <label>Invite token
+                <input id="join-token" type="text" required autocomplete="off" />
+              </label>
+              <div class="form-actions">
+                <button type="submit" class="btn primary">Join</button>
+              </div>
+            </form>
+            <pre id="join-out" class="out" hidden></pre>
+          </article>
+        </div>
+
+        <div class="grid-2">
+          <article class="block">
+            <h2>Bootstrap peers</h2>
+            <p class="note">Publish-only dial list — not a job authority.</p>
+            <form id="bootstrap-form" class="form-grid">
+              <label>Addresses (comma-separated)
+                <input id="bootstrap-peers" type="text" placeholder="127.0.0.1:9797" />
+              </label>
+              <div class="form-actions">
+                <button type="submit" class="btn">Set bootstrap</button>
+              </div>
+            </form>
+            <pre id="bootstrap-out" class="out" hidden></pre>
+          </article>
+
+          <article class="block">
+            <h2>Blocklist</h2>
+            <form id="block-form" class="form-row">
+              <label>Node ID <input id="block-id" type="text" required class="mono" /></label>
+              <button type="submit" class="btn">Block</button>
+            </form>
+            <form id="unblock-form" class="form-row">
+              <label>Node ID <input id="unblock-id" type="text" required class="mono" /></label>
+              <button type="submit" class="btn">Unblock</button>
+            </form>
+            <pre id="block-out" class="out" hidden></pre>
+          </article>
+        </div>
+
+        <details class="advanced">
+          <summary>Advanced: public DHT stub</summary>
+          <p class="note">Default off. Opt-in stub only — not a discovery browser.</p>
+          <form id="dht-form" class="form-row">
+            <label class="check"><input id="dht-enabled" type="checkbox" /> Enable public DHT stub</label>
+            <button type="submit" class="btn">Apply</button>
+          </form>
+          <pre id="dht-out" class="out" hidden></pre>
+        </details>
+      </section>
+
+      <!-- JOBS -->
+      <section id="panel-jobs" class="panel" aria-labelledby="jobs-title" hidden>
+        <header class="panel-head">
+          <h1 id="jobs-title">Jobs</h1>
+          <p>Thin submit / poll / cancel over the studio API. Not an AI studio.</p>
+        </header>
+
+        <article class="block">
+          <h2>Submit</h2>
+          <p class="note" id="support-hint">Support matrix loads after auth…</p>
+          <form id="job-form" class="form-grid">
+            <label>Kind
+              <select id="job-kind">
+                <option value="stub_echo">stub_echo</option>
+                <option value="tokenize">tokenize</option>
+                <option value="text_generate">text_generate</option>
+                <option value="embed">embed</option>
+                <option value="video_generate">video_generate</option>
+              </select>
+            </label>
+            <label>Routing
+              <select id="job-routing">
+                <option value="local">local</option>
+                <option value="mesh">mesh</option>
+                <option value="auto">auto</option>
+              </select>
+            </label>
+            <label>model_id
+              <input id="job-model" type="text" value="stub/echo" required />
+            </label>
+            <label>revision_hash
+              <input id="job-rev" type="text" value="deadbeefcafebabe" required />
+            </label>
+            <label>tokenizer_revision
+              <input id="job-tok" type="text" placeholder="required for tokenize/embed" />
+            </label>
+            <label>precision
+              <input id="job-precision" type="text" value="fp16" />
+            </label>
+            <label class="span-2">Payload
+              <textarea id="job-payload" rows="4">hello horde</textarea>
+            </label>
+            <div class="form-actions span-2">
+              <button type="submit" class="btn primary">Submit job</button>
+            </div>
+          </form>
+          <pre id="job-create-out" class="out" hidden></pre>
+        </article>
+
+        <article class="block">
+          <h2>Track job</h2>
+          <form id="job-track-form" class="form-row">
+            <label>Job ID <input id="track-id" type="text" class="mono" required /></label>
+            <button type="submit" class="btn">Poll</button>
+            <button type="button" class="btn" id="job-cancel">Cancel</button>
+            <button type="button" class="btn" id="job-accept">Accept</button>
+            <button type="button" class="btn" id="job-reject">Reject</button>
+            <button type="button" class="btn" id="job-result">Result</button>
+          </form>
+          <pre id="job-track-out" class="out" hidden></pre>
+        </article>
+
+        <article class="block">
+          <h2>History</h2>
+          <p class="note">Server list from <span class="mono">GET /v1/jobs</span>, plus IDs remembered in this browser.</p>
+          <div class="form-row">
+            <button type="button" class="btn" id="jobs-refresh">Refresh list</button>
+            <button type="button" class="btn" id="jobs-clear-local">Clear local history</button>
+          </div>
+          <div class="table-wrap">
+            <table id="jobs-table">
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>Kind</th>
+                  <th>Status</th>
+                  <th>Updated</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </article>
+      </section>
+
+      <!-- MONITOR -->
+      <section id="panel-monitor" class="panel" aria-labelledby="monitor-title" hidden>
+        <header class="panel-head">
+          <h1 id="monitor-title">Monitor</h1>
+          <p>Collective health, mesh peers, soft reputation (local scores — not currency), and recent jobs.</p>
+        </header>
+
+        <div class="stat-row" id="monitor-stats">
+          <div class="stat"><span class="stat-label">Members online</span><strong id="mon-members">—</strong></div>
+          <div class="stat"><span class="stat-label">Job count</span><strong id="mon-jobs">—</strong></div>
+          <div class="stat"><span class="stat-label">Mesh peers</span><strong id="mon-peers">—</strong></div>
+          <div class="stat"><span class="stat-label">Mode</span><strong id="mon-mode">—</strong></div>
+        </div>
+
+        <article class="block">
+          <h2>Members</h2>
+          <div class="table-wrap">
+            <table id="mon-members-table">
+              <thead>
+                <tr><th>Server</th><th>Host</th><th>GPU %</th><th>Enabled</th><th>Network</th></tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </article>
+
+        <article class="block">
+          <h2>Soft reputation</h2>
+          <p class="note">Local soft scores among invite-trusted peers. Not credits, not transferable.</p>
+          <pre id="mon-reputation" class="out">—</pre>
+        </article>
+
+        <article class="block">
+          <h2>Recent jobs</h2>
+          <div class="table-wrap">
+            <table id="mon-jobs-table">
+              <thead>
+                <tr><th>ID</th><th>Kind</th><th>Status</th><th>Routing</th><th>Updated</th></tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+          <button type="button" class="btn" id="mon-refresh">Refresh now</button>
+        </article>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <p>Horde · localhost operator UI · © 2026 Adam Webber · PolyForm Noncommercial 1.0.0</p>
+      <p class="footer-note">No cryptocurrency. No built-in AI studio. Admin binds to loopback by default.</p>
+    </footer>
+  </div>
+  <script src="/ui/js/app.js" type="module"></script>
+</body>
+</html>
