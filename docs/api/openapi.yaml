@@ -6,7 +6,9 @@ info:
     Phase D localhost admin/studio API for the Horde invite-bounded P2P GPU substrate.
     Soft non-transferable reputation / fair-share + optional priority hints among invite-trusted peers.
     Tokenisation jobs chunk under pinned fingerprints. Public DHT is an explicit opt-in stub
-    (invite-only remains default). Mesh overlay uses a separate bind (HORDE_MESH_BIND).
+    (invite-only remains default). Mesh overlay uses a separate bind: HORDE_MESH_BIND is the
+    startup default; POST /v1/admin/mesh/bind (or Host/Nodes in /ui/) enables or runtime-rebinds
+    without process restart. GET /v1/admin/config is redacted (never passphrase).
     No built-in AI studio. No cryptocurrency / credits.
   contact:
     name: Adam Webber
@@ -239,10 +241,14 @@ paths:
       tags: [mesh, admin]
       summary: Enable or runtime-rebind the mesh listen address
       description: |
+        Body: `{ "bind": "host:port" }` (for example `127.0.0.1:0` or `0.0.0.0:9100`).
+
         Starts the invite-bounded mesh listener if it was off, or rebinds the
-        accept socket in-process (no process restart). Existing peer sessions
-        are retained. Never accepts or returns a passphrase. Also updates
-        redacted GET /v1/admin/config mesh fields.
+        accept socket in-process (true runtime rebind — no process restart).
+        Overrides startup `HORDE_MESH_BIND` for the running process. Existing
+        peer sessions are retained. Same action as operator UI Host → Mesh bind
+        or Nodes → Set bind. Never accepts or returns a passphrase. Updates
+        redacted GET /v1/admin/config (`mesh_bind`, `mesh_enabled`).
       requestBody:
         required: true
         content:
@@ -255,6 +261,8 @@ paths:
                   type: string
                   description: Socket address, e.g. 127.0.0.1:0 or 0.0.0.0:9100
                   example: "127.0.0.1:0"
+            example:
+              bind: "127.0.0.1:0"
       responses:
         "200":
           description: Mesh listening on the (possibly ephemeral) address
