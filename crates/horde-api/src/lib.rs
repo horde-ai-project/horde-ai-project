@@ -18,6 +18,7 @@ use axum::Router;
 use horde_collective::CollectiveHead;
 use horde_protocol::{BootstrapPeer, DEFAULT_API_BIND};
 use serde::Serialize;
+use tokio::sync::RwLock;
 use tower_http::cors::CorsLayer;
 use tower_http::services::ServeDir;
 use tower_http::trace::TraceLayer;
@@ -39,7 +40,8 @@ pub struct PublicRuntimeConfig {
 #[derive(Clone)]
 pub struct AppState {
     pub head: Arc<CollectiveHead>,
-    pub public_config: PublicRuntimeConfig,
+    /// Mutable so runtime mesh rebind can refresh redacted config for the UI.
+    pub public_config: Arc<RwLock<PublicRuntimeConfig>>,
 }
 
 pub struct ApiConfig {
@@ -153,9 +155,15 @@ pub async fn build_app(config: ApiConfig) -> anyhow::Result<(Router, AppState, S
         }
     }
     let api_key = head.ensure_dev_api_key().await;
+    // Prefer the OS-assigned mesh address when env used an ephemeral port.
+    let mut public_config = public_config;
+    if let Some(actual) = head.mesh_bind_addr().await {
+        public_config.mesh_bind = Some(actual.to_string());
+        public_config.mesh_enabled = true;
+    }
     let state = AppState {
         head,
-        public_config,
+        public_config: Arc::new(RwLock::new(public_config)),
     };
     let ui_index = ui_dir.join("index.html");
     if !ui_index.is_file() {

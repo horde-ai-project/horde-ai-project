@@ -50,6 +50,7 @@ Admin/studio HTTP is **localhost / collective-only**. The invite-bounded mesh li
 | POST | `/v1/admin/invites/redeem` | Redeem invite (collective join bookkeeping) |
 | POST | `/v1/admin/api-keys` | Create an additional studio API key |
 | GET | `/v1/admin/mesh/status` | Mesh bind, peers, bootstrap, blocklist, DHT flag |
+| POST | `/v1/admin/mesh/bind` | Enable or **runtime-rebind** mesh listen address (no process restart; never passphrase) |
 | POST | `/v1/admin/mesh/bootstrap` | Replace publish-only bootstrap peer list |
 | POST | `/v1/admin/mesh/join` | Dial peer with mesh invite token |
 | GET\|POST | `/v1/admin/mesh/blocklist` | List / block |

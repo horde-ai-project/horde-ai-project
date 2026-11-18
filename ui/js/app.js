@@ -155,8 +155,14 @@ async function refreshHost() {
     $("#host-data-dir").textContent = config.data_dir || "—";
     $("#host-mesh").textContent = config.mesh_enabled
       ? `enabled (${config.mesh_bind || "?"})`
-      : "disabled (set HORDE_MESH_BIND before start)";
+      : "disabled (set bind below or HORDE_MESH_BIND at start)";
     $("#host-ui-url").textContent = `http://${config.bind}/ui/`;
+    if (config.mesh_bind && !$("#mesh-bind-input").value) {
+      $("#mesh-bind-input").value = config.mesh_bind;
+    }
+    if (config.mesh_bind && !$("#nodes-mesh-bind-input").value) {
+      $("#nodes-mesh-bind-input").value = config.mesh_bind;
+    }
 
     const select = $("#limits-server");
     const current = select.value;
@@ -195,6 +201,12 @@ async function refreshMesh() {
   try {
     const status = await api("/v1/admin/mesh/status");
     showOut(out, status);
+    if (status.bind) {
+      $("#nodes-mesh-bind-input").value = status.bind;
+      if (!$("#mesh-bind-input").value) {
+        $("#mesh-bind-input").value = status.bind;
+      }
+    }
     if (status.public_dht) {
       $("#dht-enabled").checked = !!status.public_dht.enabled;
     }
@@ -345,6 +357,36 @@ function wireForms() {
   });
 
   $("#host-refresh").addEventListener("click", refreshHost);
+
+  async function applyMeshBind(inputEl, outEl) {
+    const bind = inputEl.value.trim();
+    if (!bind) return;
+    try {
+      const out = await api("/v1/admin/mesh/bind", {
+        method: "POST",
+        body: { bind },
+      });
+      showOut(outEl, out);
+      if (out.mesh_bind) {
+        $("#mesh-bind-input").value = out.mesh_bind;
+        $("#nodes-mesh-bind-input").value = out.mesh_bind;
+      }
+      refreshHost();
+      refreshMesh();
+    } catch (err) {
+      showOut(outEl, String(err.message || err));
+    }
+  }
+
+  $("#mesh-bind-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    await applyMeshBind($("#mesh-bind-input"), $("#mesh-bind-out"));
+  });
+
+  $("#nodes-mesh-bind-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    await applyMeshBind($("#nodes-mesh-bind-input"), $("#nodes-mesh-bind-out"));
+  });
 
   $("#limits-form").addEventListener("submit", async (e) => {
     e.preventDefault();

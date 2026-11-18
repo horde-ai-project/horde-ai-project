@@ -68,7 +68,9 @@ paths:
     get:
       tags: [admin]
       summary: Redacted runtime config for the operator UI
-      description: Bind address, data dir, mesh flags. Never includes passphrase.
+      description: |
+        Bind address, data dir, mesh flags (live mesh_bind after runtime rebind).
+        Never includes passphrase.
       responses:
         "200":
           description: Public runtime config
@@ -228,6 +230,50 @@ paths:
               schema:
                 type: object
                 additionalProperties: true
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /v1/admin/mesh/bind:
+    post:
+      tags: [mesh, admin]
+      summary: Enable or runtime-rebind the mesh listen address
+      description: |
+        Starts the invite-bounded mesh listener if it was off, or rebinds the
+        accept socket in-process (no process restart). Existing peer sessions
+        are retained. Never accepts or returns a passphrase. Also updates
+        redacted GET /v1/admin/config mesh fields.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [bind]
+              properties:
+                bind:
+                  type: string
+                  description: Socket address, e.g. 127.0.0.1:0 or 0.0.0.0:9100
+                  example: "127.0.0.1:0"
+      responses:
+        "200":
+          description: Mesh listening on the (possibly ephemeral) address
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  mesh_bind:
+                    type: string
+                  mesh_enabled:
+                    type: boolean
+                  rebind:
+                    type: string
+                    example: runtime
+                  note:
+                    type: string
         "400":
           $ref: "#/components/responses/Error"
         "401":

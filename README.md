@@ -90,7 +90,7 @@ curl -s -X POST http://127.0.0.1:8787/v1/admin/reputation/<node_id>/priority `
 
 ## Run two nodes (invite mesh — default)
 
-Set `HORDE_MESH_BIND` on each node, mint a `mesh_join` invite, dial with `/v1/admin/mesh/join`. Bootstrap peers (`HORDE_BOOTSTRAP_PEERS`) are publish-only.
+Set `HORDE_MESH_BIND` on each node at start, or enable/rebind at runtime via Host/Nodes in `/ui/` (`POST /v1/admin/mesh/bind`). Mint a `mesh_join` invite, dial with `/v1/admin/mesh/join`. Bootstrap peers (`HORDE_BOOTSTRAP_PEERS`) are publish-only.
 
 See `docs/api/README.md` and `scripts/demo-two-node.sh`.
 

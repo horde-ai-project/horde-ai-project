@@ -82,7 +82,7 @@ Every job must pin `model_id` + `revision_hash`.
 
 ## 5. Optional: join an invite mesh
 
-1. Set `HORDE_MESH_BIND` on each node (separate from the HTTP API bind).
+1. Set `HORDE_MESH_BIND` on each node at start, **or** apply a bind at runtime from Host/Nodes in `/ui/` (`POST /v1/admin/mesh/bind`). Mesh bind is separate from the HTTP API bind.
 2. Inviter mints `purpose: "mesh_join"` via `POST /v1/admin/invites`.
 3. Joiner dials `POST /v1/admin/mesh/join` with the peer mesh address and invite token.
 4. Bootstrap peers are publish-only; invite join is still required for soft trust.

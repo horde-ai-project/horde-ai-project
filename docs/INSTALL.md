@@ -82,7 +82,7 @@ Useful variables (see [`.env.example`](../.env.example)):
 | `HORDE_DATA_DIR` | no | Data directory (default `./horde-data`) |
 | `HORDE_HOSTNAME` | no | Friendly host label |
 | `HORDE_BIND` | no | HTTP API bind (default `127.0.0.1:8787`) |
-| `HORDE_MESH_BIND` | no | Mesh listener; omit for local-only mode |
+| `HORDE_MESH_BIND` | no | Mesh listener at start; omit for local-only (can also enable/rebind at runtime via `POST /v1/admin/mesh/bind` or Host/Nodes in `/ui/`) |
 | `HORDE_BOOTSTRAP_PEERS` | no | Comma-separated publish-only peer addresses |
 | `HORDE_PUBLIC_DHT` | no | Set `1` only to opt into the public DHT stub (default off) |
 | `HORDE_UI_DIR` | no | Path to operator UI assets (default: resolve `./ui`) |
@@ -145,9 +145,9 @@ curl -s http://127.0.0.1:8787/v1/meta
 
 ### Operator UI
 
-Static assets under `ui/` are served by `horde-api` at **`http://127.0.0.1:8787/ui/`** (root `/` redirects there). Paste the API key into the top bar. Panels: Host, Nodes, Jobs, Monitor. This is operator control — not an AI studio. Start/stop still uses the scripts above (the browser cannot spawn the binary). Optional `HORDE_UI_DIR` overrides the asset path.
+Static assets under `ui/` are served by `horde-api` at **`http://127.0.0.1:8787/ui/`** (root `/` redirects there). Paste the API key into the top bar. Panels: Host, Nodes, Jobs, Monitor. This is operator control — not an AI studio. Start/stop still uses the scripts above (the browser cannot spawn the binary). Optional `HORDE_UI_DIR` overrides the asset path. Mesh bind can be set from Host or Nodes (`POST /v1/admin/mesh/bind`) without restarting the process.
 
-Without `HORDE_MESH_BIND`, the node runs in **local** mode (no mesh reputation effects).
+Without `HORDE_MESH_BIND` (and before a runtime bind), the node runs in **local** mode (no mesh reputation effects).
 
 ## Invite mesh basics (optional)
 
