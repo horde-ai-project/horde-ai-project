@@ -22,6 +22,7 @@ use tracing::{info, warn};
 
 use crate::blocklist::LocalBlocklist;
 use crate::channel::{NoiseHandshake, NoiseKeypair, SharedNoiseChannel};
+use crate::mute::LocalMuteList;
 
 /// Host hooks the mesh calls for invite checks and local job execution.
 #[async_trait]
@@ -64,6 +65,8 @@ pub struct MeshService {
     /// Node IDs previously admitted via invite (reconnect without new invite).
     trusted: RwLock<HashMap<String, PublicKeyBytes>>,
     pub blocklist: LocalBlocklist,
+    /// Soft pause accepting inbound jobs from these peers (not a kick/block).
+    pub mute_list: LocalMuteList,
     bootstrap: RwLock<Vec<BootstrapPeer>>,
     dht: Mutex<PublicDhtStub>,
     pending_jobs: Mutex<HashMap<JobId, PendingJob>>,
@@ -80,6 +83,8 @@ pub struct MeshStatus {
     pub peers: Vec<MeshPeerInfo>,
     pub bootstrap: Vec<BootstrapPeer>,
     pub blocked: Vec<String>,
+    /// Soft-muted peers (decline inbound jobs; mesh session kept).
+    pub muted: Vec<String>,
     /// Public DHT remains off unless explicitly opted in.
     pub public_dht: PublicDhtConfig,
 }
@@ -99,6 +104,7 @@ impl MeshService {
             peers: RwLock::new(HashMap::new()),
             trusted: RwLock::new(HashMap::new()),
             blocklist: LocalBlocklist::new(),
+            mute_list: LocalMuteList::new(),
             bootstrap: RwLock::new(Vec::new()),
             dht: Mutex::new(PublicDhtStub::new(PublicDhtConfig::from_env())),
             pending_jobs: Mutex::new(HashMap::new()),
@@ -135,6 +141,7 @@ impl MeshService {
             .map(|p| p.info.clone())
             .collect();
         let blocked = self.blocklist.snapshot().await.blocked_node_ids;
+        let muted = self.mute_list.snapshot().await.muted_node_ids;
         let public_dht = self.dht.lock().await.config().clone();
         MeshStatus {
             bind: self.bind_addr().to_string(),
@@ -143,8 +150,17 @@ impl MeshService {
             peers,
             bootstrap: self.bootstrap.read().await.clone(),
             blocked,
+            muted,
             public_dht,
         }
+    }
+
+    pub async fn mute_peer(&self, node_id: &str) {
+        self.mute_list.mute(node_id).await;
+    }
+
+    pub async fn unmute_peer(&self, node_id: &str) -> bool {
+        self.mute_list.unmute(node_id).await
     }
 
     pub async fn dht_config(&self) -> PublicDhtConfig {
@@ -614,6 +630,15 @@ impl MeshService {
                             .send_json(&MeshMessage::JobDecline {
                                 job_id,
                                 reason: "blocked".into(),
+                            })
+                            .await?;
+                        continue;
+                    }
+                    if self.mute_list.is_muted(&peer_id).await {
+                        channel
+                            .send_json(&MeshMessage::JobDecline {
+                                job_id,
+                                reason: "muted: paused accepting jobs from this peer".into(),
                             })
                             .await?;
                         continue;

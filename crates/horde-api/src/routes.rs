@@ -46,6 +46,8 @@ pub fn api_router(state: AppState) -> Router {
             "/v1/admin/mesh/blocklist/:node_id",
             delete(unblock_peer),
         )
+        .route("/v1/admin/mesh/mute", get(get_mute_list).post(mute_peer))
+        .route("/v1/admin/mesh/mute/:node_id", delete(unmute_peer))
         .route("/v1/admin/mesh/dht", get(dht_status).post(set_dht))
         .route("/v1/admin/mesh/dht/challenge", post(dht_challenge))
         .route("/v1/admin/mesh/dht/lookup", post(dht_lookup))
@@ -322,6 +324,43 @@ async fn unblock_peer(
     Ok(Json(json!({ "unblocked": removed, "node_id": node_id })))
 }
 
+#[derive(serde::Deserialize)]
+struct MuteBody {
+    node_id: String,
+}
+
+async fn get_mute_list(
+    State(state): State<AppState>,
+    _auth: AdminAuth,
+) -> ApiResult<Json<Value>> {
+    let muted = state.head.mute_list().await?;
+    Ok(Json(json!({
+        "muted_node_ids": muted,
+        "note": "Soft pause: decline inbound jobs from these peers; invite mesh stays intact"
+    })))
+}
+
+async fn mute_peer(
+    State(state): State<AppState>,
+    _auth: AdminAuth,
+    Json(body): Json<MuteBody>,
+) -> ApiResult<Json<Value>> {
+    state.head.mute_peer(&body.node_id).await?;
+    Ok(Json(json!({
+        "muted": body.node_id,
+        "note": "Paused accepting jobs from peer (not blocked; reconnect trust kept)"
+    })))
+}
+
+async fn unmute_peer(
+    State(state): State<AppState>,
+    _auth: AdminAuth,
+    Path(node_id): Path<String>,
+) -> ApiResult<Json<Value>> {
+    let removed = state.head.unmute_peer(&node_id).await?;
+    Ok(Json(json!({ "unmuted": removed, "node_id": node_id })))
+}
+
 async fn get_support_matrix(
     State(_state): State<AppState>,
     _auth: AdminAuth,
@@ -526,12 +565,16 @@ async fn mesh_health(
             } else {
                 Some((rejected as f64) / (total as f64))
             };
+            let muted = mesh.muted.iter().any(|id| id == &p.node_id);
+            let slow = p.rtt_ms.map(|ms| ms >= 250).unwrap_or(false);
             json!({
                 "node_id": p.node_id,
                 "addr": p.addr,
                 "connected": p.connected,
                 "last_seen": p.last_seen,
                 "rtt_ms": p.rtt_ms,
+                "slow": slow,
+                "muted": muted,
                 "accepted_results": accepted,
                 "rejected_results": rejected,
                 "accept_rate": accept_rate,
@@ -544,6 +587,7 @@ async fn mesh_health(
     Ok(Json(json!({
         "bind": mesh.bind,
         "peer_count": mesh.peer_count,
+        "muted": mesh.muted,
         "peers": peers,
         "note": "Read-only mesh health strip from peer sessions + soft reputation"
     })))

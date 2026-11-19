@@ -1,23 +1,45 @@
 const STORAGE_KEY = "horde.operator.apiKey";
 const HISTORY_KEY = "horde.operator.jobHistory";
 const THEME_KEY = "horde.operator.theme";
+const THEME_SYNC_KEY = "horde.operator.themeOsSync";
+const THEME_LIGHT_KEY = "horde.operator.themeLight";
+const THEME_DARK_KEY = "horde.operator.themeDark";
 const TEMPLATES_KEY = "horde.operator.jobTemplates";
+const CHECKLIST_DISMISS_KEY = "horde.operator.checklistDismissed";
+const CHECKLIST_STATE_KEY = "horde.operator.checklistState";
+const PREVIEW_MAX_CHARS = 48_000;
+const SLOW_PEER_RTT_MS = 250;
+const BASE_POLL_MS = 5000;
 
 const THEMES = [
-  { id: "slate-teal", label: "Slate teal (default)" },
-  { id: "coffee", label: "Coffee" },
-  { id: "business-blue", label: "Business blue" },
-  { id: "forest", label: "Forest" },
-  { id: "graphite", label: "Graphite" },
-  { id: "sandstone", label: "Sandstone" },
-  { id: "ocean", label: "Ocean" },
-  { id: "ink", label: "Ink" },
-  { id: "rosewood", label: "Rosewood" },
-  { id: "amber-field", label: "Amber field" },
+  { id: "slate-teal", label: "Slate teal (default)", scheme: "light" },
+  { id: "coffee", label: "Coffee", scheme: "light" },
+  { id: "business-blue", label: "Business blue", scheme: "light" },
+  { id: "forest", label: "Forest", scheme: "light" },
+  { id: "graphite", label: "Graphite", scheme: "light" },
+  { id: "sandstone", label: "Sandstone", scheme: "light" },
+  { id: "ocean", label: "Ocean", scheme: "light" },
+  { id: "ink", label: "Ink", scheme: "light" },
+  { id: "rosewood", label: "Rosewood", scheme: "light" },
+  { id: "amber-field", label: "Amber field", scheme: "light" },
+  { id: "night-slate", label: "Night slate (dark)", scheme: "dark" },
+  { id: "charcoal", label: "Charcoal (dark)", scheme: "dark" },
 ];
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
+
+/** @type {{ online: boolean, throttledUntil: number, pollBackoffMs: number, slowPeers: string[], lastInvite: object|null, previewBlob: string|null, pollTimer: number|null, inviteTimer: number|null }} */
+const runtime = {
+  online: true,
+  throttledUntil: 0,
+  pollBackoffMs: BASE_POLL_MS,
+  slowPeers: [],
+  lastInvite: null,
+  previewBlob: null,
+  pollTimer: null,
+  inviteTimer: null,
+};
 
 function apiBase() {
   return "";
@@ -34,6 +56,52 @@ function setConn(state, label) {
   pill.textContent = label;
 }
 
+function setApiOnline(online) {
+  runtime.online = online;
+  document.body.classList.toggle("is-api-down", !online);
+  const banner = $("#offline-banner");
+  if (banner) banner.hidden = online;
+  setConn(online ? "ok" : "bad", online ? "online" : "offline");
+}
+
+function setThrottle(message, untilMs) {
+  if (untilMs) runtime.throttledUntil = Math.max(runtime.throttledUntil, untilMs);
+  const banner = $("#throttle-banner");
+  const detail = $("#throttle-detail");
+  const active =
+    Date.now() < runtime.throttledUntil ||
+    runtime.pollBackoffMs > BASE_POLL_MS ||
+    runtime.slowPeers.length > 0;
+  if (banner) banner.hidden = !active;
+  if (detail && message) detail.textContent = message;
+  else if (detail && active) {
+    const parts = [];
+    if (Date.now() < runtime.throttledUntil) {
+      parts.push(`API rate-limit / backoff until ${new Date(runtime.throttledUntil).toLocaleTimeString()}`);
+    }
+    if (runtime.pollBackoffMs > BASE_POLL_MS) {
+      parts.push(`UI poll interval ${Math.round(runtime.pollBackoffMs / 1000)}s`);
+    }
+    if (runtime.slowPeers.length) {
+      parts.push(`Slow peer RTT ≥ ${SLOW_PEER_RTT_MS}ms: ${runtime.slowPeers.slice(0, 3).join(", ")}`);
+    }
+    detail.textContent = parts.join(" · ") || "Throttling active";
+  }
+}
+
+function clearThrottleIfIdle() {
+  if (
+    Date.now() >= runtime.throttledUntil &&
+    runtime.pollBackoffMs <= BASE_POLL_MS &&
+    !runtime.slowPeers.length
+  ) {
+    const banner = $("#throttle-banner");
+    if (banner) banner.hidden = true;
+  } else {
+    setThrottle(null);
+  }
+}
+
 async function api(path, { method = "GET", body, auth = true } = {}) {
   const headers = {};
   if (body !== undefined) headers["Content-Type"] = "application/json";
@@ -42,11 +110,23 @@ async function api(path, { method = "GET", body, auth = true } = {}) {
     if (!key) throw new Error("Set and save an API key first (from the horde startup log).");
     headers.Authorization = `Bearer ${key}`;
   }
-  const res = await fetch(`${apiBase()}${path}`, {
-    method,
-    headers,
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
+  let res;
+  try {
+    res = await fetch(`${apiBase()}${path}`, {
+      method,
+      headers,
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+  } catch (err) {
+    setApiOnline(false);
+    runtime.pollBackoffMs = Math.min(runtime.pollBackoffMs * 2, 60_000);
+    setThrottle(`Network error — backing off polls (${Math.round(runtime.pollBackoffMs / 1000)}s)`, Date.now() + runtime.pollBackoffMs);
+    schedulePolling();
+    throw new Error(err.message || "Network error — API unreachable");
+  }
+  if (path === "/health" || res.ok || res.status !== 0) {
+    if (res.status !== 0) setApiOnline(true);
+  }
   const text = await res.text();
   let data = null;
   try {
@@ -54,9 +134,24 @@ async function api(path, { method = "GET", body, auth = true } = {}) {
   } catch {
     data = text;
   }
+  if (res.status === 429) {
+    const retryAfter = Number(res.headers.get("Retry-After") || 5);
+    const waitMs = (Number.isFinite(retryAfter) ? retryAfter : 5) * 1000;
+    runtime.throttledUntil = Date.now() + waitMs;
+    runtime.pollBackoffMs = Math.max(runtime.pollBackoffMs, waitMs);
+    setThrottle(`HTTP 429 — UI throttling polls for ~${Math.round(waitMs / 1000)}s (security policy unchanged)`, runtime.throttledUntil);
+    schedulePolling();
+    const msg = data && data.error ? data.error : "429 Too Many Requests";
+    throw new Error(msg);
+  }
   if (!res.ok) {
     const msg = data && data.error ? data.error : `${res.status} ${res.statusText}`;
     throw new Error(msg);
+  }
+  if (runtime.pollBackoffMs > BASE_POLL_MS && path === "/health") {
+    runtime.pollBackoffMs = BASE_POLL_MS;
+    clearThrottleIfIdle();
+    schedulePolling();
   }
   return data;
 }
@@ -86,22 +181,63 @@ function rememberJob(id) {
   saveHistory(hist);
 }
 
-function applyTheme(id) {
-  const theme = THEMES.find((t) => t.id === id) || THEMES[0];
+function themeById(id) {
+  return THEMES.find((t) => t.id === id) || THEMES[0];
+}
+
+function osPrefersDark() {
+  return window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+}
+
+function isOsSyncEnabled() {
+  return localStorage.getItem(THEME_SYNC_KEY) === "1";
+}
+
+function applyTheme(id, { persist = true } = {}) {
+  const theme = themeById(id);
   const link = $("#theme-sheet");
   link.href = `/ui/css/themes/${theme.id}.css`;
   document.documentElement.dataset.theme = theme.id;
-  localStorage.setItem(THEME_KEY, theme.id);
+  document.documentElement.dataset.scheme = theme.scheme;
+  if (persist) {
+    localStorage.setItem(THEME_KEY, theme.id);
+    if (theme.scheme === "dark") localStorage.setItem(THEME_DARK_KEY, theme.id);
+    else localStorage.setItem(THEME_LIGHT_KEY, theme.id);
+  }
   const select = $("#theme-select");
   if (select) select.value = theme.id;
+}
+
+function resolveThemeId() {
+  if (isOsSyncEnabled()) {
+    const dark = osPrefersDark();
+    if (dark) return localStorage.getItem(THEME_DARK_KEY) || "night-slate";
+    return localStorage.getItem(THEME_LIGHT_KEY) || localStorage.getItem(THEME_KEY) || "slate-teal";
+  }
+  return localStorage.getItem(THEME_KEY) || "slate-teal";
 }
 
 function initThemes() {
   const select = $("#theme-select");
   select.innerHTML = THEMES.map((t) => `<option value="${t.id}">${t.label}</option>`).join("");
-  const saved = localStorage.getItem(THEME_KEY) || "slate-teal";
-  applyTheme(saved);
-  select.addEventListener("change", () => applyTheme(select.value));
+  const sync = $("#theme-os-sync");
+  if (sync) sync.checked = isOsSyncEnabled();
+  applyTheme(resolveThemeId());
+  select.addEventListener("change", () => {
+    applyTheme(select.value);
+  });
+  sync?.addEventListener("change", () => {
+    localStorage.setItem(THEME_SYNC_KEY, sync.checked ? "1" : "0");
+    applyTheme(resolveThemeId());
+  });
+  if (window.matchMedia) {
+    const mq = window.matchMedia("(prefers-color-scheme: dark)");
+    const onChange = () => {
+      if (isOsSyncEnabled()) applyTheme(resolveThemeId());
+    };
+    if (mq.addEventListener) mq.addEventListener("change", onChange);
+    else if (mq.addListener) mq.addListener(onChange);
+  }
 }
 
 function switchPanel(name) {
@@ -199,6 +335,55 @@ function parseHordeJoinUri(raw) {
   return { addr, token, expires: url.searchParams.get("expires") };
 }
 
+function formatRemaining(ms) {
+  if (ms <= 0) return "expired";
+  const s = Math.floor(ms / 1000);
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = s % 60;
+  if (h > 0) return `${h}h ${m}m ${sec}s`;
+  if (m > 0) return `${m}m ${sec}s`;
+  return `${sec}s`;
+}
+
+function updateInviteCountdown() {
+  const el = $("#invite-ttl");
+  if (!el) return;
+  const inv = runtime.lastInvite;
+  if (!inv?.expires_at) {
+    el.textContent = "No active invite TTL in this session.";
+    return;
+  }
+  const ends = Date.parse(inv.expires_at);
+  if (Number.isNaN(ends)) {
+    el.textContent = `Expires at ${inv.expires_at}`;
+    return;
+  }
+  const left = ends - Date.now();
+  el.textContent =
+    left <= 0
+      ? `Invite expired at ${inv.expires_at} — renew to mint a fresh token.`
+      : `Expires in ${formatRemaining(left)} (${inv.expires_at})`;
+}
+
+function startInviteCountdown() {
+  if (runtime.inviteTimer) clearInterval(runtime.inviteTimer);
+  updateInviteCountdown();
+  runtime.inviteTimer = setInterval(updateInviteCountdown, 1000);
+}
+
+function rememberInvite(out) {
+  if (!out || !out.expires_at) return;
+  runtime.lastInvite = {
+    expires_at: out.expires_at,
+    purpose: out.purpose || $("#mint-purpose")?.value,
+    ttl_secs: Number($("#mint-ttl")?.value) || 3600,
+    note: $("#mint-note")?.value?.trim() || "",
+    token_id: out.token_id,
+  };
+  startInviteCountdown();
+}
+
 function renderInviteQr(uri) {
   const box = $("#invite-qr");
   const share = $("#invite-share");
@@ -216,6 +401,52 @@ function renderInviteQr(uri) {
   } else {
     box.textContent = "QR library unavailable — copy the link instead.";
   }
+}
+
+function extractPreviewText(result) {
+  if (result == null) return null;
+  if (typeof result === "string") return result;
+  if (typeof result.output === "string") return result.output;
+  if (result.output != null) {
+    try {
+      return JSON.stringify(result.output, null, 2);
+    } catch {
+      return String(result.output);
+    }
+  }
+  try {
+    return JSON.stringify(result, null, 2);
+  } catch {
+    return String(result);
+  }
+}
+
+function showResultPreview(result) {
+  const pane = $("#result-preview");
+  const body = $("#preview-body");
+  const meta = $("#preview-meta");
+  if (!pane || !body) return;
+  const text = extractPreviewText(result);
+  if (text == null) {
+    pane.hidden = true;
+    return;
+  }
+  const bytes = new TextEncoder().encode(text).length;
+  const looksJson =
+    (text.trim().startsWith("{") && text.trim().endsWith("}")) ||
+    (text.trim().startsWith("[") && text.trim().endsWith("]"));
+  if (bytes > PREVIEW_MAX_CHARS) {
+    pane.hidden = false;
+    meta.textContent = `Output is ${bytes} bytes — too large for inline preview. Use Download.`;
+    body.textContent = text.slice(0, 2000) + "\n… [truncated]";
+    runtime.previewBlob = text;
+    return;
+  }
+  pane.hidden = false;
+  meta.textContent = `${looksJson ? "JSON" : "text"} · ${bytes} bytes`;
+  body.textContent = text;
+  runtime.previewBlob = text;
+  showOut($("#job-track-out"), result);
 }
 
 function downloadBlob(filename, text, mime) {
@@ -292,20 +523,28 @@ async function refreshMeshHealth() {
       el.textContent = "No connected peers.";
       return;
     }
+    runtime.slowPeers = peers
+      .filter((p) => p.slow || (p.rtt_ms != null && p.rtt_ms >= SLOW_PEER_RTT_MS))
+      .map((p) => p.node_id);
+    clearThrottleIfIdle();
+    if (runtime.slowPeers.length) setThrottle(null);
     el.innerHTML = peers
       .map((p) => {
         const acceptPct =
           p.accept_rate == null ? "—" : `${Math.round(p.accept_rate * 100)}%`;
         const rejectPct =
           p.reject_rate == null ? "—" : `${Math.round(p.reject_rate * 100)}%`;
-        return `<div class="health-peer">
-          <div class="peer-id">${p.node_id}</div>
+        const slow = p.slow || (p.rtt_ms != null && p.rtt_ms >= SLOW_PEER_RTT_MS);
+        const muted = !!p.muted;
+        return `<div class="health-peer" data-slow="${slow}" data-muted="${muted}">
+          <div class="peer-id">${p.node_id}${muted ? " (muted)" : ""}</div>
           <div class="peer-metrics">
             <span>${p.addr || ""}</span>
             <span>last-seen ${p.last_seen || "—"}</span>
-            <span>RTT ${p.rtt_ms != null ? p.rtt_ms + " ms" : "—"}</span>
+            <span data-rtt>RTT ${p.rtt_ms != null ? p.rtt_ms + " ms" : "—"}${slow ? " · slow" : ""}</span>
             <span>accept ${acceptPct}</span>
             <span>reject ${rejectPct}</span>
+            ${muted ? "<span>pause accept</span>" : ""}
           </div>
         </div>`;
       })
@@ -342,10 +581,10 @@ async function refreshHost() {
   try {
     const health = await api("/health", { auth: false });
     $("#host-health").textContent = health.status || "ok";
-    setConn("ok", "online");
+    setApiOnline(true);
   } catch (err) {
     $("#host-health").textContent = "unreachable";
-    setConn("bad", "offline");
+    setApiOnline(false);
     return;
   }
 
@@ -435,6 +674,12 @@ async function refreshMesh() {
   try {
     const bl = await api("/v1/admin/mesh/blocklist");
     showOut($("#block-out"), bl);
+  } catch {
+    /* mesh may be off */
+  }
+  try {
+    const muted = await api("/v1/admin/mesh/mute");
+    showOut($("#mute-out"), muted);
   } catch {
     /* mesh may be off */
   }
@@ -577,9 +822,31 @@ function wireForms() {
     const key = $("#api-key").value.trim();
     if (key) localStorage.setItem(STORAGE_KEY, key);
     else localStorage.removeItem(STORAGE_KEY);
+    if (key) markChecklist("key", true);
     refreshHost();
     loadSupportHint();
+    refreshChecklistFromDiagnostics();
   });
+
+  $("#offline-retry")?.addEventListener("click", async () => {
+    try {
+      await api("/health", { auth: false });
+      setApiOnline(true);
+      runtime.pollBackoffMs = BASE_POLL_MS;
+      clearThrottleIfIdle();
+      schedulePolling();
+      refreshHost();
+    } catch {
+      setApiOnline(false);
+    }
+  });
+
+  $("#checklist-dismiss")?.addEventListener("click", () => {
+    localStorage.setItem(CHECKLIST_DISMISS_KEY, "1");
+    const banner = $("#checklist-banner");
+    if (banner) banner.hidden = true;
+  });
+  $("#checklist-refresh")?.addEventListener("click", () => refreshChecklistFromDiagnostics());
 
   const saved = localStorage.getItem(STORAGE_KEY);
   if (saved) $("#api-key").value = saved;
@@ -603,8 +870,10 @@ function wireForms() {
         $("#mesh-bind-input").value = out.mesh_bind;
         $("#nodes-mesh-bind-input").value = out.mesh_bind;
       }
+      markChecklist("bind", true);
       refreshHost();
       refreshMesh();
+      refreshChecklistFromDiagnostics();
     } catch (err) {
       showOut(outEl, String(err.message || err));
     }
@@ -669,29 +938,41 @@ function wireForms() {
 
   $("#mesh-refresh").addEventListener("click", refreshMesh);
 
-  $("#mint-form").addEventListener("submit", async (e) => {
-    e.preventDefault();
+  async function mintInvite({ renew = false } = {}) {
     const body = {
       purpose: $("#mint-purpose").value,
       ttl_secs: Number($("#mint-ttl").value) || 3600,
     };
+    if (renew && runtime.lastInvite) {
+      body.purpose = runtime.lastInvite.purpose || body.purpose;
+      body.ttl_secs = runtime.lastInvite.ttl_secs || body.ttl_secs;
+    }
     const note = $("#mint-note").value.trim();
     if (note) body.note = note;
-    try {
-      const out = await api("/v1/admin/invites", { method: "POST", body });
-      showOut($("#mint-out"), out);
-      let uri = out.join_uri;
-      if (!uri && out.token) {
-        const addr =
-          out.mesh_addr ||
-          $("#nodes-mesh-bind-input").value.trim() ||
-          $("#mesh-bind-input").value.trim();
-        if (addr) {
-          const exp = encodeURIComponent(out.expires_at || "");
-          uri = `horde://join?addr=${encodeURIComponent(addr)}&token=${encodeURIComponent(out.token)}&expires=${exp}`;
-        }
+    else if (renew && runtime.lastInvite?.note) body.note = runtime.lastInvite.note;
+    const out = await api("/v1/admin/invites", { method: "POST", body });
+    showOut($("#mint-out"), out);
+    rememberInvite(out);
+    markChecklist("mint", true);
+    let uri = out.join_uri;
+    if (!uri && out.token) {
+      const addr =
+        out.mesh_addr ||
+        $("#nodes-mesh-bind-input").value.trim() ||
+        $("#mesh-bind-input").value.trim();
+      if (addr) {
+        const exp = encodeURIComponent(out.expires_at || "");
+        uri = `horde://join?addr=${encodeURIComponent(addr)}&token=${encodeURIComponent(out.token)}&expires=${exp}`;
       }
-      renderInviteQr(uri || null);
+    }
+    renderInviteQr(uri || null);
+    return out;
+  }
+
+  $("#mint-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    try {
+      await mintInvite();
     } catch (err) {
       showOut($("#mint-out"), String(err.message || err));
       renderInviteQr(null);
@@ -699,15 +980,32 @@ function wireForms() {
   });
 
   $("#invite-copy")?.addEventListener("click", async () => {
-    const uri = $("#invite-join-uri").value;
-    if (!uri) return;
+    await copyInviteLink();
+  });
+
+  $("#invite-renew")?.addEventListener("click", async () => {
+    try {
+      await mintInvite({ renew: true });
+    } catch (err) {
+      showOut($("#mint-out"), String(err.message || err));
+    }
+  });
+
+  async function copyInviteLink() {
+    const uri = $("#invite-join-uri")?.value;
+    if (!uri) {
+      showOut($("#mint-out"), "No invite link to copy — mint an invite first.");
+      return false;
+    }
     try {
       await navigator.clipboard.writeText(uri);
       showOut($("#mint-out"), { copied: uri });
+      return true;
     } catch {
       $("#invite-join-uri").select();
+      return false;
     }
-  });
+  }
 
   function applyJoinPaste() {
     const parsed = parseHordeJoinUri($("#join-paste").value);
@@ -739,7 +1037,9 @@ function wireForms() {
         },
       });
       showOut($("#join-out"), out);
+      markChecklist("join", true);
       refreshMesh();
+      refreshChecklistFromDiagnostics();
     } catch (err) {
       showOut($("#join-out"), String(err.message || err));
     }
@@ -786,6 +1086,34 @@ function wireForms() {
       refreshMesh();
     } catch (err) {
       showOut($("#block-out"), String(err.message || err));
+    }
+  });
+
+  $("#mute-form")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    try {
+      const out = await api("/v1/admin/mesh/mute", {
+        method: "POST",
+        body: { node_id: $("#mute-id").value.trim() },
+      });
+      showOut($("#mute-out"), out);
+      refreshMesh();
+    } catch (err) {
+      showOut($("#mute-out"), String(err.message || err));
+    }
+  });
+
+  $("#unmute-form")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const id = $("#unmute-id").value.trim();
+    try {
+      const out = await api(`/v1/admin/mesh/mute/${encodeURIComponent(id)}`, {
+        method: "DELETE",
+      });
+      showOut($("#mute-out"), out);
+      refreshMesh();
+    } catch (err) {
+      showOut($("#mute-out"), String(err.message || err));
     }
   });
 
@@ -849,6 +1177,8 @@ function wireForms() {
         rememberJob(out.id);
         renderTimeline(out.timeline || []);
         refreshJobsTable();
+        markChecklist("submit", true);
+        refreshChecklistFromDiagnostics();
       }
     } catch (err) {
       showOut($("#job-create-out"), String(err.message || err));
@@ -888,10 +1218,20 @@ function wireForms() {
   $("#job-result").addEventListener("click", async () => {
     const id = $("#track-id").value.trim();
     try {
-      showOut($("#job-track-out"), await api(`/v1/jobs/${encodeURIComponent(id)}/result`));
+      const result = await api(`/v1/jobs/${encodeURIComponent(id)}/result`);
+      showResultPreview(result);
     } catch (err) {
       showOut($("#job-track-out"), String(err.message || err));
     }
+  });
+  $("#preview-download")?.addEventListener("click", () => {
+    if (!runtime.previewBlob) return;
+    const id = $("#track-id").value.trim() || "result";
+    downloadBlob(`horde-result-${id}.txt`, runtime.previewBlob, "text/plain;charset=utf-8");
+  });
+  $("#preview-hide")?.addEventListener("click", () => {
+    const pane = $("#result-preview");
+    if (pane) pane.hidden = true;
   });
   $("#job-timeline")?.addEventListener("click", loadTimeline);
 
@@ -967,25 +1307,172 @@ function wireForms() {
   });
 }
 
-function startPolling() {
-  setInterval(() => {
+function loadChecklistState() {
+  try {
+    return JSON.parse(localStorage.getItem(CHECKLIST_STATE_KEY) || "{}");
+  } catch {
+    return {};
+  }
+}
+
+function saveChecklistState(state) {
+  localStorage.setItem(CHECKLIST_STATE_KEY, JSON.stringify(state));
+}
+
+function markChecklist(step, done) {
+  const state = loadChecklistState();
+  state[step] = !!done;
+  saveChecklistState(state);
+  renderChecklist();
+}
+
+function renderChecklist() {
+  const banner = $("#checklist-banner");
+  if (!banner) return;
+  if (localStorage.getItem(CHECKLIST_DISMISS_KEY) === "1") {
+    banner.hidden = true;
+    return;
+  }
+  const state = loadChecklistState();
+  const steps = ["key", "bind", "mint", "join", "submit"];
+  let allDone = true;
+  for (const step of steps) {
+    const li = $(`#setup-checklist li[data-step="${step}"]`);
+    const done = !!state[step];
+    if (!done) allDone = false;
+    if (li) {
+      li.dataset.done = done ? "true" : "false";
+      const mark = li.querySelector("span");
+      if (mark) mark.textContent = done ? "●" : "○";
+    }
+  }
+  banner.hidden = allDone;
+}
+
+async function refreshChecklistFromDiagnostics() {
+  if (localStorage.getItem(CHECKLIST_DISMISS_KEY) === "1") {
+    renderChecklist();
+    return;
+  }
+  if (getKey()) markChecklist("key", true);
+  if (!getKey()) {
+    renderChecklist();
+    return;
+  }
+  try {
+    const cfg = await api("/v1/admin/config");
+    if (cfg.mesh_enabled && cfg.mesh_bind) markChecklist("bind", true);
+  } catch {
+    /* ignore */
+  }
+  try {
+    const diag = await api("/v1/admin/diagnostics/join", {
+      method: "POST",
+      body: { client_time: new Date().toISOString() },
+    });
+    const byId = Object.fromEntries((diag.checks || []).map((c) => [c.id, c]));
+    if (byId.api_key?.ok) markChecklist("key", true);
+    if (byId.mesh_bind?.ok) markChecklist("bind", true);
+  } catch {
+    /* ignore */
+  }
+  try {
+    const jobs = await api("/v1/jobs?limit=1");
+    if (Array.isArray(jobs) && jobs.length) markChecklist("submit", true);
+  } catch {
+    /* ignore */
+  }
+  if (loadHistory().length) markChecklist("submit", true);
+  renderChecklist();
+}
+
+function typingInField(el) {
+  if (!el) return false;
+  const tag = el.tagName;
+  return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || el.isContentEditable;
+}
+
+function initShortcuts() {
+  document.addEventListener("keydown", (e) => {
+    const meta = e.ctrlKey || e.metaKey;
+    const inField = typingInField(document.activeElement);
+
+    // Help: ? (when not typing) or Ctrl+/
+    if ((e.key === "?" && !inField && !meta) || (meta && e.key === "/")) {
+      e.preventDefault();
+      window.location.href = "/ui/help/#keyboard-shortcuts";
+      return;
+    }
+
+    // Submit job: Ctrl/Cmd+Enter on Jobs panel (or anywhere with job form filled)
+    if (meta && e.key === "Enter") {
+      const jobsActive = $("#panel-jobs")?.classList.contains("is-active");
+      if (jobsActive || document.activeElement?.closest?.("#job-form")) {
+        e.preventDefault();
+        if (!runtime.online) return;
+        $("#job-form")?.requestSubmit();
+      }
+      return;
+    }
+
+    // Refresh mesh: Ctrl/Cmd+Shift+R (avoid browser reload conflict with plain Ctrl+R)
+    if (meta && e.shiftKey && (e.key === "R" || e.key === "r")) {
+      e.preventDefault();
+      switchPanel("nodes");
+      refreshMesh();
+      return;
+    }
+
+    // Copy invite: Ctrl/Cmd+Shift+C
+    if (meta && e.shiftKey && (e.key === "C" || e.key === "c")) {
+      e.preventDefault();
+      const uri = $("#invite-join-uri")?.value;
+      if (!uri) {
+        switchPanel("nodes");
+        showOut($("#mint-out"), "No invite link — mint an invite first.");
+        return;
+      }
+      navigator.clipboard?.writeText(uri).then(
+        () => showOut($("#mint-out"), { copied: uri }),
+        () => {
+          $("#invite-join-uri").select();
+        }
+      );
+    }
+  });
+}
+
+function schedulePolling() {
+  if (runtime.pollTimer) clearInterval(runtime.pollTimer);
+  const interval = Math.max(runtime.pollBackoffMs, BASE_POLL_MS);
+  runtime.pollTimer = setInterval(async () => {
+    if (Date.now() < runtime.throttledUntil) {
+      setThrottle(null);
+      return;
+    }
+    try {
+      await api("/health", { auth: false });
+      setApiOnline(true);
+    } catch {
+      setApiOnline(false);
+      return;
+    }
     const active = $(".panel.is-active");
     if (!active || !getKey()) return;
     if (active.id === "panel-monitor") refreshMonitor();
     if (active.id === "panel-nodes") refreshMeshHealth();
-    if (active.id === "panel-host") {
-      refreshDrain();
-      api("/health", { auth: false })
-        .then(() => setConn("ok", "online"))
-        .catch(() => setConn("bad", "offline"));
-    }
-  }, 5000);
+    if (active.id === "panel-host") refreshDrain();
+    clearThrottleIfIdle();
+  }, interval);
 }
 
 initThemes();
 wireForms();
+initShortcuts();
 refreshTemplates();
+renderChecklist();
 refreshHost();
 refreshDrain();
 loadSupportHint();
-startPolling();
+refreshChecklistFromDiagnostics();
+schedulePolling();

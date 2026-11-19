@@ -21,7 +21,7 @@ Earlier phases: invite-bounded Noise mesh (B); tokenisation chunking + support m
 
 Horde ships a **localhost browser operator UI** (not an AI studio). After the API is up, open `http://127.0.0.1:8787/ui/` and paste the studio API key from the startup log.
 
-Panels: **Host** (status, limits, theme, drain, join diagnostics, export), **Nodes** (invite mesh, QR/`horde://` join, mesh health strip), **Jobs** (submit/poll, templates, timeline), **Monitor** (health + soft reputation + export), **Help** (`/ui/help/` — bundled operations guide).
+Panels: **Host** (status, limits, theme + OS sync, shortcuts, drain, join diagnostics, export, first-run checklist), **Nodes** (invite mesh, QR/`horde://` join + TTL countdown, mute/pause accept, mesh health strip), **Jobs** (submit/poll, templates, timeline, result preview), **Monitor** (health + soft reputation + export), **Help** (`/ui/help/` — bundled operations guide). Offline/throttle banners freeze destructive actions when the API is down.
 
 Start/stop the process with host scripts (they read `.env`; they do not accept a passphrase over HTTP):
 
@@ -41,7 +41,7 @@ Copy-Item .env.example .env   # set HORDE_PASSPHRASE
 .\scripts\horde-stop.ps1
 ```
 
-Stylesheets: Host panel theme picker (coffee, business blue/white, and others). No Tauri shell in MVP.
+Stylesheets: Host panel theme picker (coffee, business blue/white, night-slate/charcoal dark, and others) with optional OS light/dark sync. No Tauri shell in MVP.
 
 ## Build & test
 

@@ -381,6 +381,62 @@ paths:
           description: Unblock result
         "401":
           $ref: "#/components/responses/Unauthorized"
+  /v1/admin/mesh/mute:
+    get:
+      tags: [mesh, admin]
+      summary: List soft-muted peers (pause accept jobs)
+      description: |
+        Soft local policy — decline inbound JobOffer from muted peers.
+        Does not kick, blocklist, or break invite mesh reconnect trust.
+      responses:
+        "200":
+          description: Muted node ids
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  muted_node_ids:
+                    type: array
+                    items:
+                      type: string
+                  note:
+                    type: string
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    post:
+      tags: [mesh, admin]
+      summary: Mute / pause accepting jobs from a peer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [node_id]
+              properties:
+                node_id:
+                  type: string
+      responses:
+        "200":
+          description: Muted
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /v1/admin/mesh/mute/{node_id}:
+    delete:
+      tags: [mesh, admin]
+      summary: Unmute a peer (resume accepting jobs)
+      parameters:
+        - name: node_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Unmute result
+        "401":
+          $ref: "#/components/responses/Unauthorized"
   /v1/admin/support-matrix:
     get:
       tags: [admin]

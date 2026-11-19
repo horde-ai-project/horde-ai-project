@@ -19,6 +19,14 @@ html {
   color-scheme: light;
 }
 
+html[data-scheme="dark"] {
+  color-scheme: dark;
+}
+
+html[data-scheme="light"] {
+  color-scheme: light;
+}
+
 body {
   margin: 0;
   min-height: 100vh;
@@ -573,6 +581,150 @@ tbody tr:hover {
 
 .check-list li[data-ok="false"] {
   border-color: var(--bad);
+}
+
+/* Status banners (offline, throttle, invite TTL, checklist) */
+.banner-stack {
+  display: grid;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.65rem 1rem;
+  padding: 0.65rem 0.9rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  font-size: 0.9rem;
+  animation: rise 0.35s ease both;
+}
+
+.banner[data-kind="offline"] {
+  border-color: var(--bad);
+  background: color-mix(in srgb, var(--bad) 12%, var(--surface));
+}
+
+.banner[data-kind="throttle"] {
+  border-color: var(--warn);
+  background: color-mix(in srgb, var(--warn) 12%, var(--surface));
+}
+
+.banner[data-kind="checklist"] {
+  border-color: var(--accent);
+}
+
+.banner[data-kind="invite"] {
+  border-color: var(--accent);
+}
+
+.banner .banner-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-left: auto;
+}
+
+body.is-api-down [data-destructive],
+body.is-api-down button.primary,
+body.is-api-down #job-form button[type="submit"],
+body.is-api-down #mint-form button[type="submit"],
+body.is-api-down #join-form button[type="submit"],
+body.is-api-down #block-form button[type="submit"],
+body.is-api-down #unblock-form button[type="submit"],
+body.is-api-down #mute-form button[type="submit"],
+body.is-api-down #unmute-form button[type="submit"],
+body.is-api-down #drain-start,
+body.is-api-down #job-cancel,
+body.is-api-down #limits-form button[type="submit"],
+body.is-api-down #mesh-bind-form button[type="submit"],
+body.is-api-down #nodes-mesh-bind-form button[type="submit"],
+body.is-api-down #bootstrap-form button[type="submit"],
+body.is-api-down #dht-form button[type="submit"],
+body.is-api-down #api-key-form button[type="submit"] {
+  opacity: 0.45;
+  pointer-events: none;
+}
+
+.preview-pane {
+  margin-top: 0.75rem;
+  padding: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--code-bg);
+}
+
+.preview-pane[hidden] {
+  display: none !important;
+}
+
+.preview-pane pre {
+  margin: 0.5rem 0 0;
+  max-height: 18rem;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+}
+
+.invite-ttl {
+  margin-top: 0.5rem;
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+}
+
+.kbd-hint {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.kbd {
+  display: inline-block;
+  padding: 0.05rem 0.35rem;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--code-bg);
+  font-family: var(--font-mono);
+  font-size: 0.78em;
+}
+
+.checklist {
+  list-style: none;
+  margin: 0.5rem 0 0;
+  padding: 0;
+  display: grid;
+  gap: 0.35rem;
+}
+
+.checklist li {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.9rem;
+}
+
+.checklist li[data-done="true"] {
+  color: var(--ok);
+}
+
+.checklist li[data-done="false"] {
+  color: var(--muted);
+}
+
+.shortcuts-panel {
+  margin-top: 0.75rem;
+}
+
+.health-peer[data-slow="true"] .peer-metrics span[data-rtt] {
+  color: var(--warn);
+}
+
+.health-peer[data-muted="true"] {
+  border-style: dashed;
 }
 
 @keyframes rise {

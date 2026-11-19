@@ -5,10 +5,13 @@
 //! - Optional public DHT: explicit opt-in stub with rate limits + resource proofs
 //! - Jobs: whole-unit or fingerprint-pinned shardable tokenisation
 //! - Trust: local blocklists are first-class; bootstrap peers are publish-only
+//! - Mute: soft pause accepting inbound jobs from a peer (invite mesh intact)
 
 mod blocklist;
 mod channel;
+mod mute;
 mod service;
 
 pub use blocklist::{BlocklistSnapshot, LocalBlocklist};
+pub use mute::{LocalMuteList, MuteListSnapshot};
 pub use service::{MeshHost, MeshService, MeshStatus};

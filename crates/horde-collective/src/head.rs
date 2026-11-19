@@ -596,6 +596,38 @@ impl CollectiveHead {
         Ok(mesh.blocklist.snapshot().await.blocked_node_ids)
     }
 
+    /// Soft-pause accepting inbound jobs from a peer (invite mesh / session kept).
+    pub async fn mute_peer(&self, node_id: &str) -> ProtocolResult<()> {
+        let mesh = self.mesh.read().await;
+        let mesh = mesh.as_ref().ok_or_else(|| {
+            ProtocolError::Other(
+                "mesh not enabled; set HORDE_MESH_BIND or POST /v1/admin/mesh/bind".into(),
+            )
+        })?;
+        mesh.mute_peer(node_id).await;
+        Ok(())
+    }
+
+    pub async fn unmute_peer(&self, node_id: &str) -> ProtocolResult<bool> {
+        let mesh = self.mesh.read().await;
+        let mesh = mesh.as_ref().ok_or_else(|| {
+            ProtocolError::Other(
+                "mesh not enabled; set HORDE_MESH_BIND or POST /v1/admin/mesh/bind".into(),
+            )
+        })?;
+        Ok(mesh.unmute_peer(node_id).await)
+    }
+
+    pub async fn mute_list(&self) -> ProtocolResult<Vec<String>> {
+        let mesh = self.mesh.read().await;
+        let mesh = mesh.as_ref().ok_or_else(|| {
+            ProtocolError::Other(
+                "mesh not enabled; set HORDE_MESH_BIND or POST /v1/admin/mesh/bind".into(),
+            )
+        })?;
+        Ok(mesh.mute_list.snapshot().await.muted_node_ids)
+    }
+
     pub async fn dht_config(&self) -> ProtocolResult<PublicDhtConfig> {
         let mesh = self.mesh.read().await;
         let mesh = mesh.as_ref().ok_or_else(|| {
