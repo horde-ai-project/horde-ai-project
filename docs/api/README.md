@@ -37,6 +37,7 @@ Admin/studio HTTP is **localhost / collective-only**. The invite-bounded mesh li
 | GET | `/health` | Liveness |
 | GET | `/v1/meta` | Product/mode/node id (+ mesh + `public_dht_enabled` + `soft_reputation`) |
 | GET | `/` → `/ui/` | Operator UI redirect (static assets under `/ui/*`) |
+| GET | `/ui/help/` | Bundled operations guide (`OPERATIONS.md`) |
 
 ### Admin (localhost / collective)
 
@@ -51,7 +52,11 @@ Admin/studio HTTP is **localhost / collective-only**. The invite-bounded mesh li
 | POST | `/v1/admin/invites` | Mint invite (plaintext returned once) |
 | POST | `/v1/admin/invites/redeem` | Redeem invite (collective join bookkeeping) |
 | POST | `/v1/admin/api-keys` | Create an additional studio API key |
+| GET\|POST | `/v1/admin/drain` | Graceful drain status / begin drain (finish in-flight, then exit) |
+| POST | `/v1/admin/diagnostics/join` | Pre-connect checks (bind, invite, clock skew, API key) |
+| GET | `/v1/admin/export` | Local-only JSON snapshot of jobs + peer stats |
 | GET | `/v1/admin/mesh/status` | Mesh bind, peers, bootstrap, blocklist, DHT flag |
+| GET | `/v1/admin/mesh/health` | Per-peer last-seen, RTT, accept/reject rates (read-only) |
 | POST | `/v1/admin/mesh/bind` | Enable or **runtime-rebind** mesh listen address (`{ "bind": "host:port" }`; no process restart; never passphrase) |
 | POST | `/v1/admin/mesh/bootstrap` | Replace publish-only bootstrap peer list |
 | POST | `/v1/admin/mesh/join` | Dial peer with mesh invite token |
@@ -69,7 +74,8 @@ Admin/studio HTTP is **localhost / collective-only**. The invite-bounded mesh li
 |--------|------|-------------|
 | GET | `/v1/jobs` | List recent jobs (`?limit=`, default 50, max 500) |
 | POST | `/v1/jobs` | Create job → local and/or mesh schedule |
-| GET | `/v1/jobs/{job_id}` | Job status |
+| GET | `/v1/jobs/{job_id}` | Job status (includes timeline) |
+| GET | `/v1/jobs/{job_id}/timeline` | State history with timestamps and peer/server |
 | GET | `/v1/jobs/{job_id}/result` | Result + worker attestation (when succeeded) |
 | POST | `/v1/jobs/{job_id}/cancel` | Cancel if not terminal |
 | POST | `/v1/jobs/{job_id}/accept` | Requester accepts attested result (updates soft reputation) |

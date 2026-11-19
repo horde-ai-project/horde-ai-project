@@ -100,6 +100,48 @@ pub enum JobStatus {
     Cancelled,
 }
 
+/// One step in a job's state history (operator timeline).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct JobTimelineEvent {
+    pub at: DateTime<Utc>,
+    pub status: JobStatus,
+    /// Peer that ran / was assigned the job (mesh), when known.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub peer_id: Option<String>,
+    /// Local collective server id, when known.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub server_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
+}
+
+impl JobTimelineEvent {
+    pub fn new(status: JobStatus) -> Self {
+        Self {
+            at: Utc::now(),
+            status,
+            peer_id: None,
+            server_id: None,
+            note: None,
+        }
+    }
+
+    pub fn with_peer(mut self, peer_id: impl Into<String>) -> Self {
+        self.peer_id = Some(peer_id.into());
+        self
+    }
+
+    pub fn with_server(mut self, server_id: impl Into<String>) -> Self {
+        self.server_id = Some(server_id.into());
+        self
+    }
+
+    pub fn with_note(mut self, note: impl Into<String>) -> Self {
+        self.note = Some(note.into());
+        self
+    }
+}
+
 impl std::fmt::Display for JobStatus {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let s = match self {
@@ -256,6 +298,9 @@ pub struct JobRecord {
     /// Soft priority hint copied from the create request (advisory only).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub priority_hint: Option<u8>,
+    /// State history for the operator timeline (queued → … → done/failed).
+    #[serde(default)]
+    pub timeline: Vec<JobTimelineEvent>,
 }
 
 impl JobRecord {
@@ -280,7 +325,27 @@ impl JobRecord {
             result: None,
             requested_vram_mb: req.requested_vram_mb,
             priority_hint: req.priority_hint,
+            timeline: vec![JobTimelineEvent {
+                at: now,
+                status: JobStatus::Queued,
+                peer_id: None,
+                server_id: None,
+                note: Some("submitted".into()),
+            }],
         })
+    }
+
+    /// Record a status transition for the operator timeline.
+    pub fn push_timeline(&mut self, event: JobTimelineEvent) {
+        self.status = event.status.clone();
+        self.updated_at = event.at;
+        if let Some(peer) = &event.peer_id {
+            self.assigned_peer_id = Some(peer.clone());
+        }
+        if let Some(server) = &event.server_id {
+            self.assigned_server_id = Some(server.clone());
+        }
+        self.timeline.push(event);
     }
 }
 
@@ -339,6 +404,9 @@ pub struct JobStatusResponse {
     pub result_decision: ResultDecision,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+    /// State history when requested (always filled for single-job GET).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub timeline: Vec<JobTimelineEvent>,
 }
 
 impl From<&JobRecord> for JobStatusResponse {
@@ -355,7 +423,17 @@ impl From<&JobRecord> for JobStatusResponse {
             routing: job.routing.clone(),
             result_decision: job.result_decision.clone(),
             error: job.error.clone(),
+            timeline: job.timeline.clone(),
         }
+    }
+}
+
+impl JobStatusResponse {
+    /// List view without full timeline (single-job GET keeps history).
+    pub fn summary(job: &JobRecord) -> Self {
+        let mut s = Self::from(job);
+        s.timeline.clear();
+        s
     }
 }
 

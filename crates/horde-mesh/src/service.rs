@@ -4,9 +4,10 @@
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
+use chrono::Utc;
 use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 use horde_node::IdentityKeys;
 use horde_protocol::{
@@ -36,6 +37,10 @@ pub trait MeshHost: Send + Sync {
     /// Rank capable peer ids by local fair-share + priority hints (Phase D).
     async fn rank_mesh_peers(&self, peer_ids: &[String], job_priority_hint: Option<u8>)
         -> Vec<String>;
+    /// Graceful drain: decline new inbound mesh jobs while finishing in-flight work.
+    async fn is_draining(&self) -> bool {
+        false
+    }
 }
 
 #[derive(Clone)]
@@ -62,6 +67,8 @@ pub struct MeshService {
     bootstrap: RwLock<Vec<BootstrapPeer>>,
     dht: Mutex<PublicDhtStub>,
     pending_jobs: Mutex<HashMap<JobId, PendingJob>>,
+    /// Outstanding Ping send times for RTT measurement.
+    pending_pings: Mutex<HashMap<String, Instant>>,
     listener: Mutex<Option<JoinHandle<()>>>,
 }
 
@@ -95,6 +102,7 @@ impl MeshService {
             bootstrap: RwLock::new(Vec::new()),
             dht: Mutex::new(PublicDhtStub::new(PublicDhtConfig::from_env())),
             pending_jobs: Mutex::new(HashMap::new()),
+            pending_pings: Mutex::new(HashMap::new()),
             listener: Mutex::new(None),
         }))
     }
@@ -481,12 +489,15 @@ impl MeshService {
 
         let shared = channel.into_split();
 
+        let now = Utc::now();
         let info = MeshPeerInfo {
             node_id: peer_id.clone(),
             public_key: peer_key,
             addr: addr.clone(),
             capability: peer_cap,
             connected: true,
+            last_seen: Some(now),
+            rtt_ms: None,
         };
 
         self.trusted
@@ -512,9 +523,63 @@ impl MeshService {
                 warn!(peer = %peer_for_task, error = %err, "mesh read loop ended");
             }
             cleanup.peers.write().await.remove(&peer_for_task);
+            cleanup.pending_pings.lock().await.remove(&peer_for_task);
+        });
+
+        // Background health pings for the operator mesh health strip.
+        let pinger = Arc::clone(self);
+        let ping_peer = peer_id.clone();
+        tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(Duration::from_secs(10)).await;
+                if pinger.peers.read().await.get(&ping_peer).is_none() {
+                    break;
+                }
+                let _ = pinger.ping_peer(&ping_peer).await;
+            }
         });
 
         Ok(info)
+    }
+
+    /// Send Ping and record send time; RTT is filled when Pong arrives.
+    pub async fn ping_peer(self: &Arc<Self>, peer_id: &str) -> ProtocolResult<()> {
+        let session = self
+            .peers
+            .read()
+            .await
+            .get(peer_id)
+            .cloned()
+            .ok_or(ProtocolError::PeerNotFound)?;
+        self.pending_pings
+            .lock()
+            .await
+            .insert(peer_id.to_string(), Instant::now());
+        session
+            .channel
+            .send_json(&MeshMessage::Ping)
+            .await
+            .map_err(|e| ProtocolError::Other(format!("ping send: {e}")))?;
+        Ok(())
+    }
+
+    async fn touch_peer(&self, peer_id: &str) {
+        if let Some(session) = self.peers.write().await.get_mut(peer_id) {
+            session.info.last_seen = Some(Utc::now());
+        }
+    }
+
+    async fn record_pong_rtt(&self, peer_id: &str) {
+        let started = self.pending_pings.lock().await.remove(peer_id);
+        if let Some(started) = started {
+            let rtt = started.elapsed().as_millis() as u64;
+            if let Some(session) = self.peers.write().await.get_mut(peer_id) {
+                session.info.rtt_ms = Some(rtt);
+                session.info.last_seen = Some(Utc::now());
+            }
+        } else if let Some(session) = self.peers.write().await.get_mut(peer_id) {
+            session.info.last_seen = Some(Utc::now());
+        }
     }
 
     async fn read_loop(
@@ -524,9 +589,13 @@ impl MeshService {
     ) -> anyhow::Result<()> {
         loop {
             let msg: MeshMessage = channel.recv_json().await?;
+            self.touch_peer(&peer_id).await;
             match msg {
                 MeshMessage::Ping => {
                     channel.send_json(&MeshMessage::Pong).await?;
+                }
+                MeshMessage::Pong => {
+                    self.record_pong_rtt(&peer_id).await;
                 }
                 MeshMessage::Capability { advert } => {
                     if let Some(session) = self.peers.write().await.get_mut(&peer_id) {
@@ -545,6 +614,15 @@ impl MeshService {
                             .send_json(&MeshMessage::JobDecline {
                                 job_id,
                                 reason: "blocked".into(),
+                            })
+                            .await?;
+                        continue;
+                    }
+                    if self.host.is_draining().await {
+                        channel
+                            .send_json(&MeshMessage::JobDecline {
+                                job_id,
+                                reason: "draining: not accepting new jobs".into(),
                             })
                             .await?;
                         continue;

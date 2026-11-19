@@ -52,7 +52,7 @@ Copy the studio API key from the startup log. Check liveness:
 curl -s http://127.0.0.1:8787/health
 ```
 
-Open the operator UI at `http://127.0.0.1:8787/ui/` and paste the API key. Or use `./scripts/horde-start.sh` / `.\scripts\horde-start.ps1` (optional browser open via `HORDE_OPEN_BROWSER=1`).
+Open the operator UI at `http://127.0.0.1:8787/ui/` and paste the API key. Day-to-day ops (drain, invite QR, mesh health, templates, export, join diagnostics) are in the UI and in the bundled guide at `http://127.0.0.1:8787/ui/help/`. Or use `./scripts/horde-start.sh` / `.\scripts\horde-start.ps1` (optional browser open via `HORDE_OPEN_BROWSER=1`).
 
 ## 4. Call the API
 

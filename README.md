@@ -21,7 +21,7 @@ Earlier phases: invite-bounded Noise mesh (B); tokenisation chunking + support m
 
 Horde ships a **localhost browser operator UI** (not an AI studio). After the API is up, open `http://127.0.0.1:8787/ui/` and paste the studio API key from the startup log.
 
-Four panels: **Host** (status + limits + theme), **Nodes** (invite mesh), **Jobs** (thin submit/poll), **Monitor** (health + soft reputation).
+Panels: **Host** (status, limits, theme, drain, join diagnostics, export), **Nodes** (invite mesh, QR/`horde://` join, mesh health strip), **Jobs** (submit/poll, templates, timeline), **Monitor** (health + soft reputation + export), **Help** (`/ui/help/` — bundled operations guide).
 
 Start/stop the process with host scripts (they read `.env`; they do not accept a passphrase over HTTP):
 

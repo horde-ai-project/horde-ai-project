@@ -23,6 +23,7 @@
         <button type="button" class="nav-btn" data-panel="nodes">Nodes</button>
         <button type="button" class="nav-btn" data-panel="jobs">Jobs</button>
         <button type="button" class="nav-btn" data-panel="monitor">Monitor</button>
+        <a class="nav-btn nav-link" href="/ui/help/">Help</a>
       </nav>
       <div class="auth-bar">
         <label class="field-inline">
@@ -125,6 +126,48 @@
           </form>
           <pre id="api-key-out" class="out" hidden></pre>
         </article>
+
+        <div class="grid-2">
+          <article class="block">
+            <h2>Graceful drain</h2>
+            <p class="note">Stop accepting new jobs, finish in-flight work, then exit the process.</p>
+            <dl class="kv" id="drain-status">
+              <div><dt>State</dt><dd id="drain-state">—</dd></div>
+              <div><dt>In-flight</dt><dd id="drain-inflight">—</dd></div>
+              <div><dt>Note</dt><dd id="drain-note">—</dd></div>
+            </dl>
+            <button type="button" class="btn" id="drain-start">Begin drain</button>
+            <pre id="drain-out" class="out" hidden></pre>
+          </article>
+
+          <article class="block">
+            <h2>Why can’t I join?</h2>
+            <p class="note">Pre-connect checks: API key, mesh bind, invite, peer address, clock skew.</p>
+            <form id="diag-form" class="form-grid">
+              <label>Peer mesh address
+                <input id="diag-addr" class="mono" type="text" placeholder="127.0.0.1:9797" />
+              </label>
+              <label>Invite token
+                <input id="diag-token" type="text" autocomplete="off" />
+              </label>
+              <div class="form-actions span-2">
+                <button type="submit" class="btn primary">Run diagnostics</button>
+              </div>
+            </form>
+            <ul id="diag-checks" class="check-list" hidden></ul>
+            <pre id="diag-out" class="out" hidden></pre>
+          </article>
+        </div>
+
+        <article class="block">
+          <h2>Export</h2>
+          <p class="note">Download job results and peer stats locally (JSON or CSV). Nothing is sent off-machine.</p>
+          <div class="form-row">
+            <button type="button" class="btn" id="export-json">Download JSON</button>
+            <button type="button" class="btn" id="export-csv">Download CSV</button>
+          </div>
+          <pre id="export-out" class="out" hidden></pre>
+        </article>
       </section>
 
       <!-- NODES -->
@@ -147,6 +190,12 @@
           <pre id="nodes-mesh-bind-out" class="out" hidden></pre>
         </article>
 
+        <article class="block">
+          <h2>Mesh health</h2>
+          <p class="note">Last-seen, RTT, and accept/reject rates from soft reputation (read-only).</p>
+          <div id="mesh-health-strip" class="health-strip">Save an API key and refresh…</div>
+        </article>
+
         <div class="grid-2">
           <article class="block">
             <h2>Mint invite</h2>
@@ -167,20 +216,33 @@
                 <button type="submit" class="btn primary">Mint</button>
               </div>
             </form>
-            <p class="note warn">Plaintext token is shown once — copy it now.</p>
+            <p class="note warn">Plaintext token is shown once — copy it now. QR / horde:// link encodes the same invite (no protocol crypto change).</p>
             <pre id="mint-out" class="out" hidden></pre>
+            <div id="invite-share" class="invite-share" hidden>
+              <label>Join link
+                <input id="invite-join-uri" class="mono" type="text" readonly />
+              </label>
+              <div class="form-row">
+                <button type="button" class="btn" id="invite-copy">Copy link</button>
+              </div>
+              <div id="invite-qr" class="qr-box" aria-label="Invite QR code"></div>
+            </div>
           </article>
 
           <article class="block">
             <h2>Join with invite</h2>
             <form id="join-form" class="form-grid">
+              <label class="span-2">Paste horde:// link or scan fields below
+                <input id="join-paste" type="text" placeholder="horde://join?addr=…&amp;token=…" autocomplete="off" />
+              </label>
               <label>Peer mesh address
                 <input id="join-addr" type="text" placeholder="127.0.0.1:9797" required />
               </label>
               <label>Invite token
                 <input id="join-token" type="text" required autocomplete="off" />
               </label>
-              <div class="form-actions">
+              <div class="form-actions span-2">
+                <button type="button" class="btn" id="join-parse">Parse link</button>
                 <button type="submit" class="btn primary">Join</button>
               </div>
             </form>
@@ -236,6 +298,20 @@
         </header>
 
         <article class="block">
+          <h2>Templates</h2>
+          <p class="note">Saved in this browser only (model id, resource hints, timeouts, payload shape).</p>
+          <form id="template-form" class="form-row">
+            <label>Preset name <input id="template-name" type="text" placeholder="stub echo" required /></label>
+            <button type="submit" class="btn">Save from form</button>
+            <button type="button" class="btn" id="template-apply">Apply selected</button>
+            <button type="button" class="btn" id="template-delete">Delete selected</button>
+          </form>
+          <label>Saved presets
+            <select id="template-select"></select>
+          </label>
+        </article>
+
+        <article class="block">
           <h2>Submit</h2>
           <p class="note" id="support-hint">Support matrix loads after auth…</p>
           <form id="job-form" class="form-grid">
@@ -267,6 +343,12 @@
             <label>precision
               <input id="job-precision" type="text" value="fp16" />
             </label>
+            <label>VRAM hint (MiB)
+              <input id="job-vram" type="number" min="0" placeholder="optional" />
+            </label>
+            <label>Timeout hint (secs)
+              <input id="job-timeout" type="number" min="0" placeholder="UI preset only" />
+            </label>
             <label class="span-2">Payload
               <textarea id="job-payload" rows="4">hello horde</textarea>
             </label>
@@ -286,7 +368,9 @@
             <button type="button" class="btn" id="job-accept">Accept</button>
             <button type="button" class="btn" id="job-reject">Reject</button>
             <button type="button" class="btn" id="job-result">Result</button>
+            <button type="button" class="btn" id="job-timeline">Timeline</button>
           </form>
+          <ol id="job-timeline-view" class="timeline" hidden></ol>
           <pre id="job-track-out" class="out" hidden></pre>
         </article>
 
@@ -356,16 +440,21 @@
               <tbody></tbody>
             </table>
           </div>
-          <button type="button" class="btn" id="mon-refresh">Refresh now</button>
+          <div class="form-row">
+            <button type="button" class="btn" id="mon-refresh">Refresh now</button>
+            <button type="button" class="btn" id="mon-export-json">Export JSON</button>
+            <button type="button" class="btn" id="mon-export-csv">Export CSV</button>
+          </div>
         </article>
       </section>
     </main>
 
     <footer class="footer">
       <p>Horde · localhost operator UI · © 2026 Adam Webber · PolyForm Noncommercial 1.0.0</p>
-      <p class="footer-note">No cryptocurrency. No built-in AI studio. Admin binds to loopback by default.</p>
+      <p class="footer-note">No cryptocurrency. No built-in AI studio. Admin binds to loopback by default. <a href="/ui/help/">Operations guide</a></p>
     </footer>
   </div>
+  <script src="/ui/js/qrcode.min.js"></script>
   <script src="/ui/js/app.js" type="module"></script>
 </body>
 </html>

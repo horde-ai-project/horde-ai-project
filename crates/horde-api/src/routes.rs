@@ -2,13 +2,14 @@ use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::routing::{delete, get, post};
 use axum::{Json, Router};
+use chrono::{DateTime, Utc};
 use horde_collective::{MeshJoinRequest, MintInviteRequest};
 use horde_node::ServerSnapshot;
 use horde_protocol::{
     support_matrix, BootstrapPeer, FairShareConfig, InviteRecord, InviteRedeemRequest,
     InviteTokenPlain, JobCreateRequest, JobId, JobResult, JobStatusResponse, MeshPeerInfo,
-    PeerSoftScore, PublicDhtConfig, ResourceProofResponse, ResultDecision, ServerLimits,
-    PROTOCOL_VERSION,
+    PeerSoftScore, PublicDhtConfig, ResourceProofResponse, ResultDecision,
+    ServerLimits, PROTOCOL_VERSION,
 };
 use serde::Deserialize;
 use serde::Serialize;
@@ -31,8 +32,12 @@ pub fn api_router(state: AppState) -> Router {
         .route("/v1/admin/invites", get(list_invites).post(mint_invite))
         .route("/v1/admin/invites/redeem", post(redeem_invite))
         .route("/v1/admin/api-keys", post(create_api_key))
+        .route("/v1/admin/drain", get(drain_status).post(begin_drain))
+        .route("/v1/admin/diagnostics/join", post(join_diagnostics))
+        .route("/v1/admin/export", get(export_snapshot))
         // Mesh admin (localhost only — not on public overlay)
         .route("/v1/admin/mesh/status", get(mesh_status))
+        .route("/v1/admin/mesh/health", get(mesh_health))
         .route("/v1/admin/mesh/bind", post(set_mesh_bind))
         .route("/v1/admin/mesh/bootstrap", post(set_bootstrap))
         .route("/v1/admin/mesh/join", post(mesh_join))
@@ -57,11 +62,32 @@ pub fn api_router(state: AppState) -> Router {
         // Studio
         .route("/v1/jobs", get(list_jobs).post(create_job))
         .route("/v1/jobs/:job_id", get(get_job))
+        .route("/v1/jobs/:job_id/timeline", get(get_timeline))
         .route("/v1/jobs/:job_id/result", get(get_result))
         .route("/v1/jobs/:job_id/cancel", post(cancel_job))
         .route("/v1/jobs/:job_id/accept", post(accept_result))
         .route("/v1/jobs/:job_id/reject", post(reject_result))
         .with_state(state)
+}
+
+fn encode_join_uri(mesh_addr: &str, token: &str, expires_at: DateTime<Utc>) -> String {
+    let addr = urlencoding_minimal(mesh_addr);
+    let tok = urlencoding_minimal(token);
+    let exp = urlencoding_minimal(&expires_at.to_rfc3339());
+    format!("horde://join?addr={addr}&token={tok}&expires={exp}")
+}
+
+fn urlencoding_minimal(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for b in s.bytes() {
+        match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(b as char)
+            }
+            _ => out.push_str(&format!("%{b:02X}")),
+        }
+    }
+    out
 }
 
 #[derive(Serialize)]
@@ -141,8 +167,21 @@ async fn mint_invite(
     State(state): State<AppState>,
     _auth: AdminAuth,
     Json(req): Json<MintInviteRequest>,
-) -> Json<InviteTokenPlain> {
-    Json(state.head.mint_invite(req).await)
+) -> Json<Value> {
+    let plain: InviteTokenPlain = state.head.mint_invite(req).await;
+    let mesh_addr = state.head.mesh_bind_addr().await.map(|a| a.to_string());
+    let join_uri = mesh_addr
+        .as_ref()
+        .map(|addr| encode_join_uri(addr, &plain.token, plain.expires_at));
+    Json(json!({
+        "token_id": plain.token_id,
+        "token": plain.token,
+        "purpose": plain.purpose,
+        "expires_at": plain.expires_at,
+        "join_uri": join_uri,
+        "mesh_addr": mesh_addr,
+        "note": "Plaintext token shown once. Paste join_uri / scan QR in the operator UI. No protocol crypto change."
+    }))
 }
 
 async fn list_invites(
@@ -389,7 +428,125 @@ async fn list_jobs(
     Query(q): Query<ListJobsQuery>,
 ) -> Json<Vec<JobStatusResponse>> {
     let jobs = state.head.list_jobs(q.limit).await;
-    Json(jobs.iter().map(JobStatusResponse::from).collect())
+    Json(jobs.iter().map(JobStatusResponse::summary).collect())
+}
+
+async fn get_timeline(
+    State(state): State<AppState>,
+    _auth: StudioAuth,
+    Path(job_id): Path<Uuid>,
+) -> ApiResult<Json<Value>> {
+    let events = state.head.job_timeline(&JobId(job_id)).await?;
+    Ok(Json(json!({
+        "job_id": job_id,
+        "timeline": events,
+    })))
+}
+
+async fn drain_status(
+    State(state): State<AppState>,
+    _auth: AdminAuth,
+) -> Json<horde_collective::DrainStatus> {
+    Json(state.head.drain_status().await)
+}
+
+async fn begin_drain(
+    State(state): State<AppState>,
+    _auth: AdminAuth,
+) -> Json<horde_collective::DrainStatus> {
+    Json(state.head.begin_drain().await)
+}
+
+#[derive(Deserialize)]
+struct JoinDiagBody {
+    #[serde(default)]
+    peer_addr: Option<String>,
+    #[serde(default)]
+    token: Option<String>,
+    #[serde(default)]
+    client_time: Option<DateTime<Utc>>,
+}
+
+async fn join_diagnostics(
+    State(state): State<AppState>,
+    auth: AdminAuth,
+    Json(body): Json<JoinDiagBody>,
+) -> Json<horde_collective::JoinDiagnostics> {
+    let _ = auth;
+    Json(
+        state
+            .head
+            .join_diagnostics(
+                true, // AdminAuth already validated the key
+                body.peer_addr.as_deref(),
+                body.token.as_deref(),
+                body.client_time,
+            )
+            .await,
+    )
+}
+
+async fn export_snapshot(
+    State(state): State<AppState>,
+    _auth: AdminAuth,
+) -> Json<Value> {
+    Json(state.head.export_snapshot().await)
+}
+
+async fn mesh_health(
+    State(state): State<AppState>,
+    _auth: AdminAuth,
+) -> ApiResult<Json<Value>> {
+    let mesh = state.head.mesh_status().await.ok_or_else(|| {
+        crate::error::ApiError::new(
+            StatusCode::BAD_REQUEST,
+            "mesh not enabled; set HORDE_MESH_BIND or POST /v1/admin/mesh/bind",
+        )
+    })?;
+    let reputation = state.head.reputation_snapshot().await;
+    let rep_by_id: std::collections::HashMap<_, _> = reputation
+        .into_iter()
+        .map(|p| (p.node_id.clone(), p))
+        .collect();
+    let peers: Vec<Value> = mesh
+        .peers
+        .iter()
+        .map(|p| {
+            let score = rep_by_id.get(&p.node_id);
+            let accepted = score.map(|s| s.accepted_results).unwrap_or(0);
+            let rejected = score.map(|s| s.rejected_results).unwrap_or(0);
+            let total = accepted + rejected;
+            let accept_rate = if total == 0 {
+                None
+            } else {
+                Some((accepted as f64) / (total as f64))
+            };
+            let reject_rate = if total == 0 {
+                None
+            } else {
+                Some((rejected as f64) / (total as f64))
+            };
+            json!({
+                "node_id": p.node_id,
+                "addr": p.addr,
+                "connected": p.connected,
+                "last_seen": p.last_seen,
+                "rtt_ms": p.rtt_ms,
+                "accepted_results": accepted,
+                "rejected_results": rejected,
+                "accept_rate": accept_rate,
+                "reject_rate": reject_rate,
+                "fair_share_weight": score.map(|s| s.fair_share_weight),
+                "ignored_as_consumer": score.map(|s| s.ignored_as_consumer).unwrap_or(false),
+            })
+        })
+        .collect();
+    Ok(Json(json!({
+        "bind": mesh.bind,
+        "peer_count": mesh.peer_count,
+        "peers": peers,
+        "note": "Read-only mesh health strip from peer sessions + soft reputation"
+    })))
 }
 
 async fn create_job(

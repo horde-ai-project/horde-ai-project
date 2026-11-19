@@ -201,8 +201,15 @@ pub async fn serve(config: ApiConfig) -> anyhow::Result<()> {
     );
     info!(%api_key, "studio API key (Authorization: Bearer <key>)");
     info!(ui = %format!("http://{bind}/ui/"), "operator UI");
+    info!(help = %format!("http://{bind}/ui/help/"), "operations guide in UI");
     let listener = tokio::net::TcpListener::bind(bind).await?;
-    axum::serve(listener, app).await?;
+    let shutdown = Arc::clone(&state.head.shutdown);
+    axum::serve(listener, app)
+        .with_graceful_shutdown(async move {
+            shutdown.notified().await;
+            info!("graceful shutdown after drain");
+        })
+        .await?;
     Ok(())
 }
 

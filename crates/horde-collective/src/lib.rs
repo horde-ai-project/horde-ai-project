@@ -6,5 +6,8 @@
 mod head;
 mod scheduler;
 
-pub use head::{CollectiveHead, CollectiveStatus, MeshJoinRequest, MintInviteRequest};
+pub use head::{
+    CollectiveHead, CollectiveStatus, DiagnosticCheck, DrainStatus, JoinDiagnostics,
+    MeshJoinRequest, MintInviteRequest,
+};
 pub use scheduler::pick_server;
