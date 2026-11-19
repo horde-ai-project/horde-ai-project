@@ -124,6 +124,7 @@ Quick demo script: `./scripts/demo-two-node.sh`.
 | Doc | Use when |
 |-----|----------|
 | [INSTALL.md](INSTALL.md) | Full install notes (Windows + Linux), env table, mesh safety |
+| [OPERATIONS.md](OPERATIONS.md) | Plain-English how-to for Host, Nodes, Jobs, Monitor, and curl |
 | [api/README.md](api/README.md) | Endpoint reference for studios and admins |
 | [api/openapi.yaml](api/openapi.yaml) | Machine-readable API contract |
 | [README.md](../README.md) | Project overview and Phase D features |
