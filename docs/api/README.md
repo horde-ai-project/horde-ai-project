@@ -27,6 +27,7 @@ Admin/studio HTTP is **localhost / collective-only**. The invite-bounded mesh li
 | **Public DHT** | Optional opt-in stub; rate-limited + resource-proof hooks |
 | **Bootstrap peers** | Static/config publish-only dial list — **not** a job authority |
 | **Blocklist** | Local operator deny list (first-class; overrides soft reputation) |
+| **Mute list** | Soft pause accepting inbound jobs from a peer (invite mesh kept) |
 
 ## Endpoints
 
@@ -62,6 +63,8 @@ Admin/studio HTTP is **localhost / collective-only**. The invite-bounded mesh li
 | POST | `/v1/admin/mesh/join` | Dial peer with mesh invite token |
 | GET\|POST | `/v1/admin/mesh/blocklist` | List / block |
 | DELETE | `/v1/admin/mesh/blocklist/{node_id}` | Unblock |
+| GET\|POST | `/v1/admin/mesh/mute` | List / soft-mute (pause accept jobs; not a kick) |
+| DELETE | `/v1/admin/mesh/mute/{node_id}` | Unmute |
 | GET\|POST | `/v1/admin/mesh/dht` | DHT stub status / explicit opt-in config |
 | POST | `/v1/admin/mesh/dht/challenge` | Issue resource-proof challenge |
 | POST | `/v1/admin/mesh/dht/lookup` | Rate-limited stub lookup |

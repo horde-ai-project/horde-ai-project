@@ -1,0 +1,20 @@
+/* Dark industrial charcoal */
+:root {
+  --bg-0: #141618;
+  --bg-1: #1c1f23;
+  --bg-glow: rgba(120, 130, 140, 0.12);
+  --fg: #eceff1;
+  --muted: #9aa3ab;
+  --brand: #d7dde2;
+  --accent: #8b9aab;
+  --accent-fg: #121417;
+  --surface: rgba(28, 32, 36, 0.94);
+  --input-bg: #22262b;
+  --code-bg: #1e2328;
+  --border: #3a4149;
+  --table-head: #22262b;
+  --row-hover: rgba(139, 154, 171, 0.1);
+  --ok: #5bb98a;
+  --bad: #e06c75;
+  --warn: #d4a017;
+}

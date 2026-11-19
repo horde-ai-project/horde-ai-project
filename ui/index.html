@@ -36,11 +36,42 @@
     </header>
 
     <main id="main" class="main">
+      <div id="banner-stack" class="banner-stack" aria-live="polite">
+        <div id="offline-banner" class="banner" data-kind="offline" hidden role="alert">
+          <strong>API unreachable</strong>
+          <span>horde-api is offline or not responding. Destructive actions are frozen until it returns.</span>
+          <div class="banner-actions">
+            <button type="button" class="btn" id="offline-retry">Retry</button>
+          </div>
+        </div>
+        <div id="throttle-banner" class="banner" data-kind="throttle" hidden role="status">
+          <strong>Throttling</strong>
+          <span id="throttle-detail">UI polls backed off or a peer looks slow.</span>
+        </div>
+        <div id="checklist-banner" class="banner" data-kind="checklist" hidden>
+          <div>
+            <strong>First-run checklist</strong>
+            <p class="note" style="margin:0.25rem 0 0">Bind mesh → mint invite → join → submit a job. Uses local diagnostics; dismiss anytime.</p>
+            <ol id="setup-checklist" class="checklist">
+              <li data-step="key" data-done="false"><span aria-hidden="true">○</span> Save API key</li>
+              <li data-step="bind" data-done="false"><span aria-hidden="true">○</span> Bind mesh</li>
+              <li data-step="mint" data-done="false"><span aria-hidden="true">○</span> Mint invite</li>
+              <li data-step="join" data-done="false"><span aria-hidden="true">○</span> Join (or skip if solo)</li>
+              <li data-step="submit" data-done="false"><span aria-hidden="true">○</span> Submit a job</li>
+            </ol>
+          </div>
+          <div class="banner-actions">
+            <button type="button" class="btn" id="checklist-refresh">Check now</button>
+            <button type="button" class="btn" id="checklist-dismiss">Dismiss</button>
+          </div>
+        </div>
+      </div>
+
       <!-- HOST -->
       <section id="panel-host" class="panel is-active" aria-labelledby="host-title">
         <header class="panel-head">
           <h1 id="host-title">Host</h1>
-          <p>Local node status, resource limits, and how to start or stop the process.</p>
+          <p>Local node status, resource limits, and how to start or stop the process. Shortcuts: see Help or press <span class="kbd">?</span>.</p>
         </header>
 
         <div class="grid-2">
@@ -116,6 +147,22 @@
           <label>Stylesheet
             <select id="theme-select"></select>
           </label>
+          <label class="check" style="margin-top:0.65rem;display:inline-flex">
+            <input id="theme-os-sync" type="checkbox" />
+            Sync with OS light/dark (remembers last theme per scheme)
+          </label>
+          <p class="note">Choice is stored in this browser (<span class="mono">localStorage</span>). Dark themes: night-slate, charcoal.</p>
+        </article>
+
+        <article class="block">
+          <h2>Keyboard shortcuts</h2>
+          <ul class="plain-list kbd-hint" id="shortcuts-list">
+            <li><span class="kbd">Ctrl</span>/<span class="kbd">⌘</span>+<span class="kbd">Enter</span> — submit job (Jobs panel)</li>
+            <li><span class="kbd">Ctrl</span>/<span class="kbd">⌘</span>+<span class="kbd">Shift</span>+<span class="kbd">R</span> — refresh mesh</li>
+            <li><span class="kbd">Ctrl</span>/<span class="kbd">⌘</span>+<span class="kbd">Shift</span>+<span class="kbd">C</span> — copy invite link</li>
+            <li><span class="kbd">?</span> or <span class="kbd">Ctrl</span>/<span class="kbd">⌘</span>+<span class="kbd">/</span> — open Help</li>
+          </ul>
+          <p class="note">Also documented in <a href="/ui/help/#keyboard-shortcuts">Help → Keyboard shortcuts</a>.</p>
         </article>
 
         <article class="block">
@@ -222,8 +269,10 @@
               <label>Join link
                 <input id="invite-join-uri" class="mono" type="text" readonly />
               </label>
+              <p id="invite-ttl" class="invite-ttl" aria-live="polite">—</p>
               <div class="form-row">
                 <button type="button" class="btn" id="invite-copy">Copy link</button>
+                <button type="button" class="btn" id="invite-renew">Renew (re-mint)</button>
               </div>
               <div id="invite-qr" class="qr-box" aria-label="Invite QR code"></div>
             </div>
@@ -278,6 +327,20 @@
             <pre id="block-out" class="out" hidden></pre>
           </article>
         </div>
+
+        <article class="block">
+          <h2>Per-peer mute / pause accept</h2>
+          <p class="note">Soft-pause accepting inbound jobs from one peer without kicking. Invite mesh and reconnect trust stay intact (not a blocklist).</p>
+          <form id="mute-form" class="form-row">
+            <label>Node ID <input id="mute-id" type="text" required class="mono" /></label>
+            <button type="submit" class="btn">Mute / pause</button>
+          </form>
+          <form id="unmute-form" class="form-row">
+            <label>Node ID <input id="unmute-id" type="text" required class="mono" /></label>
+            <button type="submit" class="btn">Unmute</button>
+          </form>
+          <pre id="mute-out" class="out" hidden></pre>
+        </article>
 
         <details class="advanced">
           <summary>Advanced: public DHT stub</summary>
@@ -354,6 +417,7 @@
             </label>
             <div class="form-actions span-2">
               <button type="submit" class="btn primary">Submit job</button>
+              <span class="kbd-hint"><span class="kbd">Ctrl</span>+<span class="kbd">Enter</span></span>
             </div>
           </form>
           <pre id="job-create-out" class="out" hidden></pre>
@@ -371,6 +435,15 @@
             <button type="button" class="btn" id="job-timeline">Timeline</button>
           </form>
           <ol id="job-timeline-view" class="timeline" hidden></ol>
+          <div id="result-preview" class="preview-pane" hidden>
+            <div class="form-row">
+              <strong>Result preview</strong>
+              <span id="preview-meta" class="note" style="margin:0"></span>
+              <button type="button" class="btn" id="preview-download">Download</button>
+              <button type="button" class="btn" id="preview-hide">Hide</button>
+            </div>
+            <pre id="preview-body"></pre>
+          </div>
           <pre id="job-track-out" class="out" hidden></pre>
         </article>
 

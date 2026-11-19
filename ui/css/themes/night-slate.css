@@ -1,0 +1,20 @@
+/* Dark counterpart to slate-teal */
+:root {
+  --bg-0: #0f171c;
+  --bg-1: #152028;
+  --bg-glow: rgba(20, 160, 150, 0.16);
+  --fg: #e6eef2;
+  --muted: #8aa0ad;
+  --brand: #7fd4cc;
+  --accent: #2dd4bf;
+  --accent-fg: #042f2e;
+  --surface: rgba(22, 32, 40, 0.92);
+  --input-bg: #1a2730;
+  --code-bg: #1c2a33;
+  --border: #334854;
+  --table-head: #1c2a33;
+  --row-hover: rgba(45, 212, 191, 0.08);
+  --ok: #3dd68c;
+  --bad: #f07178;
+  --warn: #e6b450;
+}

@@ -157,7 +157,26 @@ That is a true in-process rebind. Port `0` asks the OS for a free port; the resp
 
 ### Theme
 
-**Host → Theme** — pick a stylesheet (coffee, business blue/white, and others). Choice is stored in the browser only.
+**Host → Theme** — pick a stylesheet (coffee, business blue/white, night-slate / charcoal dark themes, and others). Choice is stored in the browser only. Optionally enable **Sync with OS light/dark** so the UI follows `prefers-color-scheme` while remembering the last light and dark theme separately (`localStorage`).
+
+### Keyboard shortcuts
+
+Documented on **Host → Keyboard shortcuts** and in Help:
+
+| Shortcut | Action |
+|----------|--------|
+| `Ctrl`/`⌘`+`Enter` | Submit job (Jobs panel) |
+| `Ctrl`/`⌘`+`Shift`+`R` | Refresh mesh |
+| `Ctrl`/`⌘`+`Shift`+`C` | Copy invite join link |
+| `?` or `Ctrl`/`⌘`+`/` | Open Help |
+
+### Offline / throttle banners
+
+If `horde-api` is unreachable, an **API unreachable** banner appears and destructive actions (submit, mint, join, block, mute, drain, limits, bind, …) stay frozen until the API returns. A separate **Throttling** banner shows when the UI backs off polls after HTTP 429 / network errors, or when a mesh peer RTT is slow (≥ 250 ms). This is visibility only — it does not change server security policy.
+
+### First-run checklist
+
+On first open, a dismissible checklist tracks: save API key → bind mesh → mint invite → join → submit a job. Progress is stored in `localStorage` and can use join diagnostics. **Dismiss** hides it until you clear site data.
 
 ### Extra API key
 
@@ -236,6 +255,7 @@ curl -s http://127.0.0.1:8787/v1/admin/mesh/health \
 3. Optional note → **Mint**.
 4. Copy the plaintext token **once** — it is not shown again.
 5. When mesh is bound, the response also includes a `horde://join?…` link and the UI shows a QR / copyable join URI (same invite; no protocol crypto change).
+6. The UI shows an **expiry countdown** from `expires_at`. **Renew (re-mint)** mints a fresh invite with the same purpose/TTL (plaintext shown once again).
 
 ```bash
 curl -s -X POST http://127.0.0.1:8787/v1/admin/invites \
@@ -287,6 +307,23 @@ curl -s -X POST http://127.0.0.1:8787/v1/admin/mesh/blocklist \
   -d '{"node_id":"<node_id>"}'
 
 curl -s -X DELETE http://127.0.0.1:8787/v1/admin/mesh/blocklist/<node_id> \
+  -H "Authorization: Bearer <api_key>"
+```
+
+### Per-peer mute / pause accept
+
+**Nodes → Per-peer mute / pause accept** soft-pauses **accepting inbound jobs** from one peer without kicking or blocklisting. The invite mesh session and reconnect trust stay intact. Muted peers show on the mesh health strip.
+
+```bash
+curl -s -X POST http://127.0.0.1:8787/v1/admin/mesh/mute \
+  -H "Authorization: Bearer <api_key>" \
+  -H 'Content-Type: application/json' \
+  -d '{"node_id":"<node_id>"}'
+
+curl -s http://127.0.0.1:8787/v1/admin/mesh/mute \
+  -H "Authorization: Bearer <api_key>"
+
+curl -s -X DELETE http://127.0.0.1:8787/v1/admin/mesh/mute/<node_id> \
   -H "Authorization: Bearer <api_key>"
 ```
 
@@ -349,7 +386,7 @@ Optional soft `priority_hint` (0–100) mildly prefers reciprocal mesh peers. It
 | **Poll** | Latest status (includes timeline when available) |
 | **Timeline** | State history: queued → scheduled → running → succeeded/failed/cancelled, with timestamps and peer/server |
 | **Cancel** | Stop if not already finished |
-| **Result** | Output + worker attestation when succeeded |
+| **Result** | Output + worker attestation when succeeded; small text/JSON shows an **inline preview** with optional download |
 | **Accept** | You accept the attested result (updates soft reputation for mesh peers) |
 | **Reject** | You reject it (same — local soft scores only) |
 
@@ -419,6 +456,10 @@ Local mode (no mesh) does not apply soft-reputation effects between peers.
 ## 6. Help (bundled operations guide)
 
 Open **Help** in the operator UI, or browse `http://127.0.0.1:8787/ui/help/`. The page serves this `OPERATIONS.md` so the guide travels with the binary (under `ui/help/`).
+
+### Keyboard shortcuts {#keyboard-shortcuts}
+
+Same bindings as the Host panel: submit job (`Ctrl`/`⌘`+`Enter`), refresh mesh (`Ctrl`/`⌘`+`Shift`+`R`), copy invite (`Ctrl`/`⌘`+`Shift`+`C`), open help (`?` or `Ctrl`/`⌘`+`/`).
 
 ---
 
