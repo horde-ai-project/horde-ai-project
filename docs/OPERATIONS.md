@@ -96,7 +96,7 @@ curl -s http://127.0.0.1:8787/health
 curl -s http://127.0.0.1:8787/v1/meta
 ```
 
-Four panels: **Host**, **Nodes**, **Jobs**, **Monitor**.
+Four panels: **Host**, **Nodes**, **Jobs**, **Monitor**, plus **Help** (`/ui/help/`) for this guide bundled with the binary.
 
 ---
 
@@ -170,6 +170,37 @@ curl -s -X POST http://127.0.0.1:8787/v1/admin/api-keys \
   -d '{"label":"operator"}'
 ```
 
+### Graceful drain
+
+**Host → Graceful drain → Begin drain** stops accepting new jobs (local submit and inbound mesh). In-flight jobs finish, then the process exits.
+
+```bash
+curl -s -X POST http://127.0.0.1:8787/v1/admin/drain \
+  -H "Authorization: Bearer <api_key>"
+curl -s http://127.0.0.1:8787/v1/admin/drain \
+  -H "Authorization: Bearer <api_key>"
+```
+
+### Why can’t I join? (diagnostics)
+
+**Host → Why can’t I join?** checks API key presence, mesh bind, peer address parse, invite validity on this node, and clock skew vs the server.
+
+```bash
+curl -s -X POST http://127.0.0.1:8787/v1/admin/diagnostics/join \
+  -H "Authorization: Bearer <api_key>" \
+  -H 'Content-Type: application/json' \
+  -d '{"peer_addr":"127.0.0.1:9797","token":"<invite_token>","client_time":"2026-11-19T12:00:00Z"}'
+```
+
+### Export (local-only)
+
+**Host → Export** (also on Monitor) downloads jobs + peer stats as JSON or CSV. Nothing is uploaded.
+
+```bash
+curl -s http://127.0.0.1:8787/v1/admin/export \
+  -H "Authorization: Bearer <api_key>" -o horde-export.json
+```
+
 ---
 
 ## 3. Nodes panel (invite mesh)
@@ -187,6 +218,15 @@ curl -s http://127.0.0.1:8787/v1/admin/mesh/status \
   -H "Authorization: Bearer <api_key>"
 ```
 
+### Mesh health strip
+
+**Nodes → Mesh health** shows per-peer last-seen, RTT (Ping→Pong), and accept/reject rates from local soft reputation (read-only).
+
+```bash
+curl -s http://127.0.0.1:8787/v1/admin/mesh/health \
+  -H "Authorization: Bearer <api_key>"
+```
+
 ### Mint an invite
 
 **Nodes → Mint invite**
@@ -195,6 +235,7 @@ curl -s http://127.0.0.1:8787/v1/admin/mesh/status \
 2. TTL in seconds (default 3600).
 3. Optional note → **Mint**.
 4. Copy the plaintext token **once** — it is not shown again.
+5. When mesh is bound, the response also includes a `horde://join?…` link and the UI shows a QR / copyable join URI (same invite; no protocol crypto change).
 
 ```bash
 curl -s -X POST http://127.0.0.1:8787/v1/admin/invites \
@@ -207,8 +248,9 @@ curl -s -X POST http://127.0.0.1:8787/v1/admin/invites \
 
 On the joining node (**Nodes → Join with invite**):
 
-1. Peer mesh address (the inviter’s mesh bind, not the HTTP bind).
-2. Invite token → **Join**.
+1. Paste a `horde://join?…` link (or fill peer mesh address + token).
+2. Peer mesh address is the inviter’s mesh bind, not the HTTP bind.
+3. **Join**.
 
 ```bash
 curl -s -X POST http://127.0.0.1:8787/v1/admin/mesh/join \
@@ -294,13 +336,18 @@ curl -s -X POST http://127.0.0.1:8787/v1/jobs \
 
 Optional soft `priority_hint` (0–100) mildly prefers reciprocal mesh peers. It is **not** a paid queue jump.
 
-### Poll, cancel, result, accept, reject
+### Job templates / presets
+
+**Jobs → Templates** saves common payload shapes (model id, VRAM/timeout hints, routing, payload) in **local browser storage** only. Apply a preset to fill the submit form.
+
+### Poll, cancel, result, timeline, accept, reject
 
 **Jobs → Track job** — paste a job ID:
 
 | Button | What it does |
 |--------|----------------|
-| **Poll** | Latest status |
+| **Poll** | Latest status (includes timeline when available) |
+| **Timeline** | State history: queued → scheduled → running → succeeded/failed/cancelled, with timestamps and peer/server |
 | **Cancel** | Stop if not already finished |
 | **Result** | Output + worker attestation when succeeded |
 | **Accept** | You accept the attested result (updates soft reputation for mesh peers) |
@@ -308,6 +355,9 @@ Optional soft `priority_hint` (0–100) mildly prefers reciprocal mesh peers. It
 
 ```bash
 curl -s http://127.0.0.1:8787/v1/jobs/<job_id> \
+  -H "Authorization: Bearer <api_key>"
+
+curl -s http://127.0.0.1:8787/v1/jobs/<job_id>/timeline \
   -H "Authorization: Bearer <api_key>"
 
 curl -s http://127.0.0.1:8787/v1/jobs/<job_id>/result \
@@ -363,6 +413,12 @@ curl -s -X POST http://127.0.0.1:8787/v1/admin/reputation/<node_id>/priority \
 ```
 
 Local mode (no mesh) does not apply soft-reputation effects between peers.
+
+---
+
+## 6. Help (bundled operations guide)
+
+Open **Help** in the operator UI, or browse `http://127.0.0.1:8787/ui/help/`. The page serves this `OPERATIONS.md` so the guide travels with the binary (under `ui/help/`).
 
 ---
 

@@ -485,6 +485,96 @@ tbody tr:hover {
   text-decoration: underline;
 }
 
+.nav-link {
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+}
+
+.health-strip {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.health-peer {
+  display: grid;
+  gap: 0.2rem;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--code-bg);
+  animation: rise 0.4s ease both;
+}
+
+.health-peer .peer-id {
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  word-break: break-all;
+}
+
+.health-peer .peer-metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.invite-share {
+  margin-top: 0.75rem;
+  display: grid;
+  gap: 0.5rem;
+}
+
+.qr-box {
+  width: 180px;
+  height: 180px;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.35rem;
+}
+
+.qr-box img,
+.qr-box canvas {
+  width: 100% !important;
+  height: 100% !important;
+}
+
+.timeline {
+  margin: 0.75rem 0 0;
+  padding-left: 1.2rem;
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+}
+
+.timeline li {
+  margin-bottom: 0.45rem;
+}
+
+.check-list {
+  list-style: none;
+  margin: 0.75rem 0 0;
+  padding: 0;
+  display: grid;
+  gap: 0.4rem;
+}
+
+.check-list li {
+  padding: 0.45rem 0.65rem;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  font-size: 0.85rem;
+}
+
+.check-list li[data-ok="true"] {
+  border-color: var(--ok);
+}
+
+.check-list li[data-ok="false"] {
+  border-color: var(--bad);
+}
+
 @keyframes rise {
   from {
     opacity: 0;

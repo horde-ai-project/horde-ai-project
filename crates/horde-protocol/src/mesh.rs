@@ -3,6 +3,7 @@
 //! Discovery defaults to invite-graph + static bootstrap peers.
 //! Public DHT join is Phase C+ **explicit opt-in** only (see `PublicDhtConfig`).
 
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 use crate::capability::CapabilityAdvert;
@@ -26,6 +27,12 @@ pub struct MeshPeerInfo {
     pub addr: String,
     pub capability: Option<CapabilityAdvert>,
     pub connected: bool,
+    /// Last application-message activity (operator mesh health strip).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_seen: Option<DateTime<Utc>>,
+    /// Last measured Ping→Pong round-trip in milliseconds.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rtt_ms: Option<u64>,
 }
 
 /// Application messages framed over the Noise channel (JSON).

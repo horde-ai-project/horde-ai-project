@@ -30,7 +30,8 @@ pub use identity::{NodeId, PublicKeyBytes};
 pub use invite::{InvitePurpose, InviteRecord, InviteRedeemRequest, InviteTokenPlain};
 pub use job::{
     validate_work_kind, JobCreateRequest, JobId, JobRecord, JobResult, JobRouting, JobStatus,
-    JobStatusResponse, ModelFingerprint, ResultAttestation, ResultDecision, WorkKind,
+    JobStatusResponse, JobTimelineEvent, ModelFingerprint, ResultAttestation, ResultDecision,
+    WorkKind,
 };
 pub use limits::{ServerLimits, TimeWindow};
 pub use mesh::{BootstrapPeer, MeshMessage, MeshPeerInfo};

@@ -108,24 +108,32 @@ impl PhysicalServer {
     }
 
     pub async fn run_job(self: &Arc<Self>, mut job: JobRecord) -> JobRecord {
-        job.status = JobStatus::Running;
-        job.assigned_server_id = Some(self.server_id.clone());
-        job.updated_at = chrono::Utc::now();
+        job.push_timeline(
+            horde_protocol::JobTimelineEvent::new(JobStatus::Running)
+                .with_server(self.server_id.clone())
+                .with_note("local execute"),
+        );
 
         match self.executor.execute(&job, &self.identity).await {
             Ok(result) => {
-                job.status = JobStatus::Succeeded;
                 job.result = Some(result);
                 job.error = None;
+                job.push_timeline(
+                    horde_protocol::JobTimelineEvent::new(JobStatus::Succeeded)
+                        .with_server(self.server_id.clone()),
+                );
             }
             Err(err) => {
                 warn!(job_id = %job.id, error = %err, "job failed");
-                job.status = JobStatus::Failed;
                 job.error = Some(err.to_string());
                 job.result = None::<JobResult>;
+                job.push_timeline(
+                    horde_protocol::JobTimelineEvent::new(JobStatus::Failed)
+                        .with_server(self.server_id.clone())
+                        .with_note(err.to_string()),
+                );
             }
         }
-        job.updated_at = chrono::Utc::now();
         job
     }
 }

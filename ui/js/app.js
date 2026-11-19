@@ -1,6 +1,7 @@
 const STORAGE_KEY = "horde.operator.apiKey";
 const HISTORY_KEY = "horde.operator.jobHistory";
 const THEME_KEY = "horde.operator.theme";
+const TEMPLATES_KEY = "horde.operator.jobTemplates";
 
 const THEMES = [
   { id: "slate-teal", label: "Slate teal (default)" },
@@ -113,9 +114,226 @@ function switchPanel(name) {
     panel.hidden = !active;
   });
   if (name === "monitor") refreshMonitor();
-  if (name === "nodes") refreshMesh();
-  if (name === "jobs") refreshJobsTable();
-  if (name === "host") refreshHost();
+  if (name === "nodes") {
+    refreshMesh();
+    refreshMeshHealth();
+  }
+  if (name === "jobs") {
+    refreshJobsTable();
+    refreshTemplates();
+  }
+  if (name === "host") {
+    refreshHost();
+    refreshDrain();
+  }
+}
+
+function loadTemplates() {
+  try {
+    return JSON.parse(localStorage.getItem(TEMPLATES_KEY) || "[]");
+  } catch {
+    return [];
+  }
+}
+
+function saveTemplates(list) {
+  localStorage.setItem(TEMPLATES_KEY, JSON.stringify(list.slice(0, 40)));
+}
+
+function refreshTemplates() {
+  const select = $("#template-select");
+  if (!select) return;
+  const list = loadTemplates();
+  select.innerHTML = list.length
+    ? list.map((t, i) => `<option value="${i}">${t.name}</option>`).join("")
+    : `<option value="">No presets yet</option>`;
+}
+
+function readJobForm() {
+  const vram = $("#job-vram").value.trim();
+  const timeout = $("#job-timeout").value.trim();
+  return {
+    kind: $("#job-kind").value,
+    routing: $("#job-routing").value,
+    model_id: $("#job-model").value.trim(),
+    revision_hash: $("#job-rev").value.trim(),
+    tokenizer_revision: $("#job-tok").value.trim() || null,
+    precision: $("#job-precision").value.trim() || "fp16",
+    payload: $("#job-payload").value,
+    requested_vram_mb: vram ? Number(vram) : null,
+    timeout_secs: timeout ? Number(timeout) : null,
+  };
+}
+
+function applyJobForm(t) {
+  if (!t) return;
+  if (t.kind) $("#job-kind").value = t.kind;
+  if (t.routing) $("#job-routing").value = t.routing;
+  if (t.model_id) $("#job-model").value = t.model_id;
+  if (t.revision_hash) $("#job-rev").value = t.revision_hash;
+  $("#job-tok").value = t.tokenizer_revision || "";
+  $("#job-precision").value = t.precision || "fp16";
+  if (t.payload != null) $("#job-payload").value = t.payload;
+  $("#job-vram").value = t.requested_vram_mb ?? "";
+  $("#job-timeout").value = t.timeout_secs ?? "";
+}
+
+function parseHordeJoinUri(raw) {
+  const text = (raw || "").trim();
+  if (!text) return null;
+  let url;
+  try {
+    if (text.startsWith("horde://")) {
+      url = new URL(text.replace(/^horde:\/\//, "https://horde.local/"));
+    } else if (text.includes("addr=") && text.includes("token=")) {
+      url = new URL(text.includes("://") ? text : `https://horde.local/?${text.replace(/^\?/, "")}`);
+    } else {
+      return null;
+    }
+  } catch {
+    return null;
+  }
+  const addr = url.searchParams.get("addr");
+  const token = url.searchParams.get("token");
+  if (!addr || !token) return null;
+  return { addr, token, expires: url.searchParams.get("expires") };
+}
+
+function renderInviteQr(uri) {
+  const box = $("#invite-qr");
+  const share = $("#invite-share");
+  const input = $("#invite-join-uri");
+  if (!uri) {
+    share.hidden = true;
+    return;
+  }
+  share.hidden = false;
+  input.value = uri;
+  box.innerHTML = "";
+  if (typeof QRCode !== "undefined") {
+    // eslint-disable-next-line no-new
+    new QRCode(box, { text: uri, width: 164, height: 164, correctLevel: QRCode.CorrectLevel.M });
+  } else {
+    box.textContent = "QR library unavailable — copy the link instead.";
+  }
+}
+
+function downloadBlob(filename, text, mime) {
+  const blob = new Blob([text], { type: mime });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+function jobsAndPeersToCsv(snap) {
+  const lines = ["section,key,value"];
+  const push = (section, key, value) => {
+    const v = String(value ?? "").replace(/"/g, '""');
+    lines.push(`${section},${key},"${v}"`);
+  };
+  push("meta", "exported_at", snap.exported_at);
+  push("meta", "node_id", snap.node_id);
+  for (const j of snap.jobs || []) {
+    push("job", j.id, `${j.status}|${j.kind}|${j.updated_at || ""}|peer=${j.assigned_peer_id || ""}|server=${j.assigned_server_id || ""}`);
+  }
+  for (const p of snap.peer_stats || []) {
+    push(
+      "peer_stats",
+      p.node_id,
+      `accept=${p.accepted_results}|reject=${p.rejected_results}|weight=${p.fair_share_weight}`
+    );
+  }
+  for (const p of snap.mesh?.peers || []) {
+    push("mesh_peer", p.node_id, `${p.addr}|rtt=${p.rtt_ms ?? ""}|last_seen=${p.last_seen || ""}`);
+  }
+  return lines.join("\n");
+}
+
+async function doExport(format) {
+  try {
+    const snap = await api("/v1/admin/export");
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+    if (format === "json") {
+      downloadBlob(`horde-export-${stamp}.json`, JSON.stringify(snap, null, 2), "application/json");
+    } else {
+      downloadBlob(`horde-export-${stamp}.csv`, jobsAndPeersToCsv(snap), "text/csv");
+    }
+    showOut($("#export-out"), { ok: true, format, jobs: (snap.jobs || []).length });
+  } catch (err) {
+    showOut($("#export-out"), String(err.message || err));
+  }
+}
+
+async function refreshDrain() {
+  if (!getKey()) return;
+  try {
+    const d = await api("/v1/admin/drain");
+    $("#drain-state").textContent = d.draining ? (d.ready_to_exit ? "ready to exit" : "draining") : "active";
+    $("#drain-inflight").textContent = String(d.in_flight ?? "—");
+    $("#drain-note").textContent = d.note || "—";
+  } catch {
+    /* ignore */
+  }
+}
+
+async function refreshMeshHealth() {
+  const el = $("#mesh-health-strip");
+  if (!el) return;
+  if (!getKey()) {
+    el.textContent = "Save an API key to load mesh health.";
+    return;
+  }
+  try {
+    const health = await api("/v1/admin/mesh/health");
+    const peers = health.peers || [];
+    if (!peers.length) {
+      el.textContent = "No connected peers.";
+      return;
+    }
+    el.innerHTML = peers
+      .map((p) => {
+        const acceptPct =
+          p.accept_rate == null ? "—" : `${Math.round(p.accept_rate * 100)}%`;
+        const rejectPct =
+          p.reject_rate == null ? "—" : `${Math.round(p.reject_rate * 100)}%`;
+        return `<div class="health-peer">
+          <div class="peer-id">${p.node_id}</div>
+          <div class="peer-metrics">
+            <span>${p.addr || ""}</span>
+            <span>last-seen ${p.last_seen || "—"}</span>
+            <span>RTT ${p.rtt_ms != null ? p.rtt_ms + " ms" : "—"}</span>
+            <span>accept ${acceptPct}</span>
+            <span>reject ${rejectPct}</span>
+          </div>
+        </div>`;
+      })
+      .join("");
+  } catch (err) {
+    el.textContent = String(err.message || err);
+  }
+}
+
+function renderTimeline(events) {
+  const ol = $("#job-timeline-view");
+  if (!events || !events.length) {
+    ol.hidden = true;
+    ol.innerHTML = "";
+    return;
+  }
+  ol.hidden = false;
+  ol.innerHTML = events
+    .map((e) => {
+      const who = e.peer_id
+        ? `peer ${e.peer_id}`
+        : e.server_id
+          ? `server ${e.server_id}`
+          : "—";
+      const note = e.note ? ` · ${e.note}` : "";
+      return `<li><strong>${e.status}</strong> @ ${e.at || "—"} · ${who}${note}</li>`;
+    })
+    .join("");
 }
 
 /* ---- Host ---- */
@@ -220,6 +438,7 @@ async function refreshMesh() {
   } catch {
     /* mesh may be off */
   }
+  refreshMeshHealth();
 }
 
 /* ---- Jobs ---- */
@@ -272,7 +491,20 @@ async function pollJob() {
     const job = await api(`/v1/jobs/${encodeURIComponent(id)}`);
     rememberJob(id);
     showOut($("#job-track-out"), job);
+    renderTimeline(job.timeline || []);
     refreshJobsTable();
+  } catch (err) {
+    showOut($("#job-track-out"), String(err.message || err));
+  }
+}
+
+async function loadTimeline() {
+  const id = $("#track-id").value.trim();
+  if (!id) return;
+  try {
+    const data = await api(`/v1/jobs/${encodeURIComponent(id)}/timeline`);
+    renderTimeline(data.timeline || []);
+    showOut($("#job-track-out"), data);
   } catch (err) {
     showOut($("#job-track-out"), String(err.message || err));
   }
@@ -448,13 +680,56 @@ function wireForms() {
     try {
       const out = await api("/v1/admin/invites", { method: "POST", body });
       showOut($("#mint-out"), out);
+      let uri = out.join_uri;
+      if (!uri && out.token) {
+        const addr =
+          out.mesh_addr ||
+          $("#nodes-mesh-bind-input").value.trim() ||
+          $("#mesh-bind-input").value.trim();
+        if (addr) {
+          const exp = encodeURIComponent(out.expires_at || "");
+          uri = `horde://join?addr=${encodeURIComponent(addr)}&token=${encodeURIComponent(out.token)}&expires=${exp}`;
+        }
+      }
+      renderInviteQr(uri || null);
     } catch (err) {
       showOut($("#mint-out"), String(err.message || err));
+      renderInviteQr(null);
     }
   });
 
+  $("#invite-copy")?.addEventListener("click", async () => {
+    const uri = $("#invite-join-uri").value;
+    if (!uri) return;
+    try {
+      await navigator.clipboard.writeText(uri);
+      showOut($("#mint-out"), { copied: uri });
+    } catch {
+      $("#invite-join-uri").select();
+    }
+  });
+
+  function applyJoinPaste() {
+    const parsed = parseHordeJoinUri($("#join-paste").value);
+    if (!parsed) return false;
+    $("#join-addr").value = parsed.addr;
+    $("#join-token").value = parsed.token;
+    return true;
+  }
+
+  $("#join-parse")?.addEventListener("click", () => {
+    if (!applyJoinPaste()) {
+      showOut($("#join-out"), "Could not parse horde:// join link");
+    } else {
+      showOut($("#join-out"), { parsed: true, addr: $("#join-addr").value });
+    }
+  });
+
+  $("#join-paste")?.addEventListener("change", applyJoinPaste);
+
   $("#join-form").addEventListener("submit", async (e) => {
     e.preventDefault();
+    applyJoinPaste();
     try {
       const out = await api("/v1/admin/mesh/join", {
         method: "POST",
@@ -527,27 +802,52 @@ function wireForms() {
     }
   });
 
+  $("#template-form")?.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const name = $("#template-name").value.trim();
+    if (!name) return;
+    const list = loadTemplates();
+    list.unshift({ name, ...readJobForm() });
+    saveTemplates(list);
+    $("#template-name").value = "";
+    refreshTemplates();
+  });
+  $("#template-apply")?.addEventListener("click", () => {
+    const list = loadTemplates();
+    const i = Number($("#template-select").value);
+    applyJobForm(list[i]);
+  });
+  $("#template-delete")?.addEventListener("click", () => {
+    const list = loadTemplates();
+    const i = Number($("#template-select").value);
+    if (Number.isNaN(i) || i < 0) return;
+    list.splice(i, 1);
+    saveTemplates(list);
+    refreshTemplates();
+  });
+
   $("#job-form").addEventListener("submit", async (e) => {
     e.preventDefault();
-    const kind = $("#job-kind").value;
+    const form = readJobForm();
     const body = {
       fingerprint: {
-        model_id: $("#job-model").value.trim(),
-        revision_hash: $("#job-rev").value.trim(),
-        precision: $("#job-precision").value.trim() || "fp16",
+        model_id: form.model_id,
+        revision_hash: form.revision_hash,
+        precision: form.precision,
       },
-      kind,
-      payload: $("#job-payload").value,
-      routing: $("#job-routing").value,
+      kind: form.kind,
+      payload: form.payload,
+      routing: form.routing,
     };
-    const tok = $("#job-tok").value.trim();
-    if (tok) body.fingerprint.tokenizer_revision = tok;
+    if (form.tokenizer_revision) body.fingerprint.tokenizer_revision = form.tokenizer_revision;
+    if (form.requested_vram_mb) body.requested_vram_mb = form.requested_vram_mb;
     try {
       const out = await api("/v1/jobs", { method: "POST", body });
       showOut($("#job-create-out"), out);
       if (out.id) {
         $("#track-id").value = out.id;
         rememberJob(out.id);
+        renderTimeline(out.timeline || []);
         refreshJobsTable();
       }
     } catch (err) {
@@ -593,6 +893,7 @@ function wireForms() {
       showOut($("#job-track-out"), String(err.message || err));
     }
   });
+  $("#job-timeline")?.addEventListener("click", loadTimeline);
 
   $("#jobs-refresh").addEventListener("click", refreshJobsTable);
   $("#jobs-clear-local").addEventListener("click", () => {
@@ -601,6 +902,55 @@ function wireForms() {
   });
 
   $("#mon-refresh").addEventListener("click", refreshMonitor);
+  $("#mon-export-json")?.addEventListener("click", () => doExport("json"));
+  $("#mon-export-csv")?.addEventListener("click", () => doExport("csv"));
+  $("#export-json")?.addEventListener("click", () => doExport("json"));
+  $("#export-csv")?.addEventListener("click", () => doExport("csv"));
+
+  $("#drain-start")?.addEventListener("click", async () => {
+    if (!confirm("Begin graceful drain? New jobs will be rejected and the process will exit when in-flight work finishes.")) {
+      return;
+    }
+    try {
+      const out = await api("/v1/admin/drain", { method: "POST" });
+      showOut($("#drain-out"), out);
+      refreshDrain();
+    } catch (err) {
+      showOut($("#drain-out"), String(err.message || err));
+    }
+  });
+
+  $("#diag-form")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const keyPresent = !!getKey();
+    const list = $("#diag-checks");
+    if (!keyPresent) {
+      list.hidden = false;
+      list.innerHTML = `<li data-ok="false"><strong>api_key</strong> — paste the key from the startup log first</li>`;
+      showOut($("#diag-out"), { ok: false, reason: "api key missing in UI" });
+      return;
+    }
+    try {
+      const out = await api("/v1/admin/diagnostics/join", {
+        method: "POST",
+        body: {
+          peer_addr: $("#diag-addr").value.trim() || null,
+          token: $("#diag-token").value.trim() || null,
+          client_time: new Date().toISOString(),
+        },
+      });
+      list.hidden = false;
+      list.innerHTML = (out.checks || [])
+        .map(
+          (c) =>
+            `<li data-ok="${c.ok}"><strong>${c.id}</strong> — ${c.detail}</li>`
+        )
+        .join("");
+      showOut($("#diag-out"), out);
+    } catch (err) {
+      showOut($("#diag-out"), String(err.message || err));
+    }
+  });
 
   // Auto-fill tokenize defaults when kind changes
   $("#job-kind").addEventListener("change", () => {
@@ -622,7 +972,9 @@ function startPolling() {
     const active = $(".panel.is-active");
     if (!active || !getKey()) return;
     if (active.id === "panel-monitor") refreshMonitor();
+    if (active.id === "panel-nodes") refreshMeshHealth();
     if (active.id === "panel-host") {
+      refreshDrain();
       api("/health", { auth: false })
         .then(() => setConn("ok", "online"))
         .catch(() => setConn("bad", "offline"));
@@ -632,6 +984,8 @@ function startPolling() {
 
 initThemes();
 wireForms();
+refreshTemplates();
 refreshHost();
+refreshDrain();
 loadSupportHint();
 startPolling();

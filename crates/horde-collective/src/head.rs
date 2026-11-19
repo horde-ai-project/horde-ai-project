@@ -1,21 +1,23 @@
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use chrono::{DateTime, Utc};
 use horde_mesh::{MeshHost, MeshService, MeshStatus};
 use horde_node::{EncryptedKeystore, IdentityKeys, PhysicalServer, ServerSnapshot};
 use horde_protocol::{
     BootstrapPeer, CapabilityAdvert, FairShareConfig, InvitePurpose, InviteRecord,
     InviteRedeemRequest, InviteTokenPlain, JobCreateRequest, JobId, JobRecord, JobResult,
-    JobRouting, JobStatus, LocalReputationLedger, MeshPeerInfo, PeerSoftScore, ProtocolError,
-    ProtocolResult, PublicDhtConfig, ResourceProofChallenge, ResourceProofResponse,
+    JobRouting, JobStatus, JobTimelineEvent, LocalReputationLedger, MeshPeerInfo, PeerSoftScore,
+    ProtocolError, ProtocolResult, PublicDhtConfig, ResourceProofChallenge, ResourceProofResponse,
     ResultDecision, ServerLimits, PROTOCOL_VERSION,
 };
 use rand::{distributions::Alphanumeric, Rng};
 use serde::{Deserialize, Serialize};
-use tokio::sync::RwLock;
+use tokio::sync::{Notify, RwLock};
 use tracing::{info, warn};
 
 use crate::scheduler::pick_server;
@@ -45,12 +47,40 @@ pub struct CollectiveStatus {
     pub members: Vec<ServerSnapshot>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mesh: Option<MeshStatus>,
+    /// True while graceful drain is active (no new jobs).
+    pub draining: bool,
 }
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct MeshJoinRequest {
     pub peer_addr: String,
     pub token: String,
+}
+
+/// Operator drain snapshot (stop accepting → finish in-flight → exit).
+#[derive(Clone, Debug, Serialize)]
+pub struct DrainStatus {
+    pub draining: bool,
+    pub in_flight: usize,
+    pub ready_to_exit: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub started_at: Option<DateTime<Utc>>,
+    pub note: String,
+}
+
+/// One check in the join / “why can’t I join?” diagnostic.
+#[derive(Clone, Debug, Serialize)]
+pub struct DiagnosticCheck {
+    pub id: String,
+    pub ok: bool,
+    pub detail: String,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct JoinDiagnostics {
+    pub ok: bool,
+    pub server_time: DateTime<Utc>,
+    pub checks: Vec<DiagnosticCheck>,
 }
 
 /// In-memory collective head (local + optional invite-bounded mesh).
@@ -66,6 +96,10 @@ pub struct CollectiveHead {
     mesh: RwLock<Option<Arc<MeshService>>>,
     /// Soft, non-transferable local reputation (Phase D). Local mode does not update it.
     reputation: RwLock<LocalReputationLedger>,
+    draining: AtomicBool,
+    drain_started_at: RwLock<Option<DateTime<Utc>>>,
+    /// Notified when drain completes (in-flight == 0) so the API process can exit.
+    pub shutdown: Arc<Notify>,
 }
 
 impl CollectiveHead {
@@ -96,6 +130,9 @@ impl CollectiveHead {
             data_dir,
             mesh: RwLock::new(None),
             reputation: RwLock::new(LocalReputationLedger::new()),
+            draining: AtomicBool::new(false),
+            drain_started_at: RwLock::new(None),
+            shutdown: Arc::new(Notify::new()),
         }))
     }
 
@@ -215,7 +252,215 @@ impl CollectiveHead {
             job_count: self.jobs.read().await.len(),
             members: snaps,
             mesh,
+            draining: self.is_draining(),
         }
+    }
+
+    pub fn draining_active(&self) -> bool {
+        self.draining.load(Ordering::SeqCst)
+    }
+
+    pub fn is_draining(&self) -> bool {
+        self.draining_active()
+    }
+
+    pub async fn in_flight_jobs(&self) -> usize {
+        self.jobs
+            .read()
+            .await
+            .values()
+            .filter(|j| !j.status.is_terminal())
+            .count()
+    }
+
+    pub async fn drain_status(&self) -> DrainStatus {
+        let draining = self.is_draining();
+        let in_flight = self.in_flight_jobs().await;
+        let ready = draining && in_flight == 0;
+        DrainStatus {
+            draining,
+            in_flight,
+            ready_to_exit: ready,
+            started_at: *self.drain_started_at.read().await,
+            note: if !draining {
+                "not draining; new jobs still accepted".into()
+            } else if ready {
+                "drain complete; process may exit".into()
+            } else {
+                format!("draining; waiting on {in_flight} in-flight job(s)")
+            },
+        }
+    }
+
+    /// Stop accepting new jobs; when in-flight reaches zero, notify shutdown.
+    pub async fn begin_drain(self: &Arc<Self>) -> DrainStatus {
+        if !self.draining.swap(true, Ordering::SeqCst) {
+            *self.drain_started_at.write().await = Some(Utc::now());
+            info!("graceful drain started — no new jobs will be accepted");
+            let head = Arc::clone(self);
+            tokio::spawn(async move {
+                loop {
+                    if head.in_flight_jobs().await == 0 {
+                        info!("drain complete — signaling API shutdown");
+                        head.shutdown.notify_waiters();
+                        break;
+                    }
+                    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+                }
+            });
+        }
+        self.drain_status().await
+    }
+
+    /// Peek invite validity without redeeming (join diagnostics).
+    pub async fn peek_invite(&self, token: &str) -> DiagnosticCheck {
+        let invites = self.invites.read().await;
+        let Some(record) = invites
+            .values()
+            .find(|r| r.token_hash == InviteRecord::hash_token(token))
+        else {
+            return DiagnosticCheck {
+                id: "invite".into(),
+                ok: false,
+                detail: "token not found on this node (minted elsewhere or mistyped)".into(),
+            };
+        };
+        if record.redeemed {
+            return DiagnosticCheck {
+                id: "invite".into(),
+                ok: false,
+                detail: format!("invite {} already redeemed", record.token_id),
+            };
+        }
+        if Utc::now() >= record.expires_at {
+            return DiagnosticCheck {
+                id: "invite".into(),
+                ok: false,
+                detail: format!("invite expired at {}", record.expires_at.to_rfc3339()),
+            };
+        }
+        DiagnosticCheck {
+            id: "invite".into(),
+            ok: true,
+            detail: format!(
+                "valid {:?} until {}",
+                record.purpose,
+                record.expires_at.to_rfc3339()
+            ),
+        }
+    }
+
+    /// Pre-connect diagnostics: bind, invite, clock skew, API key presence.
+    pub async fn join_diagnostics(
+        &self,
+        api_key_present: bool,
+        peer_addr: Option<&str>,
+        token: Option<&str>,
+        client_time: Option<DateTime<Utc>>,
+    ) -> JoinDiagnostics {
+        let server_time = Utc::now();
+        let mut checks = Vec::new();
+
+        checks.push(DiagnosticCheck {
+            id: "api_key".into(),
+            ok: api_key_present,
+            detail: if api_key_present {
+                "Authorization Bearer key present on request".into()
+            } else {
+                "no API key in request — paste key from startup log into the operator UI".into()
+            },
+        });
+
+        let mesh = self.mesh_status().await;
+        match &mesh {
+            Some(m) => checks.push(DiagnosticCheck {
+                id: "mesh_bind".into(),
+                ok: true,
+                detail: format!("mesh listening on {}", m.bind),
+            }),
+            None => checks.push(DiagnosticCheck {
+                id: "mesh_bind".into(),
+                ok: false,
+                detail: "mesh not enabled — set HORDE_MESH_BIND or POST /v1/admin/mesh/bind"
+                    .into(),
+            }),
+        }
+
+        if let Some(addr) = peer_addr.filter(|s| !s.trim().is_empty()) {
+            let parse_ok = addr.parse::<SocketAddr>().is_ok();
+            checks.push(DiagnosticCheck {
+                id: "peer_addr".into(),
+                ok: parse_ok,
+                detail: if parse_ok {
+                    format!("peer mesh address parses as {addr}")
+                } else {
+                    format!("invalid peer mesh address '{addr}' (expect host:port)")
+                },
+            });
+        } else {
+            checks.push(DiagnosticCheck {
+                id: "peer_addr".into(),
+                ok: false,
+                detail: "peer mesh address not provided".into(),
+            });
+        }
+
+        if let Some(tok) = token.filter(|s| !s.trim().is_empty()) {
+            // On the inviting node, peek local invites; joiners mint on the other side.
+            checks.push(self.peek_invite(tok).await);
+        } else {
+            checks.push(DiagnosticCheck {
+                id: "invite".into(),
+                ok: false,
+                detail: "invite token not provided".into(),
+            });
+        }
+
+        match client_time {
+            Some(ct) => {
+                let skew_ms = (server_time - ct).num_milliseconds().abs();
+                let ok = skew_ms < 120_000;
+                checks.push(DiagnosticCheck {
+                    id: "clock_skew".into(),
+                    ok,
+                    detail: format!(
+                        "skew_ms={skew_ms} (server={}, client={})",
+                        server_time.to_rfc3339(),
+                        ct.to_rfc3339()
+                    ),
+                });
+            }
+            None => checks.push(DiagnosticCheck {
+                id: "clock_skew".into(),
+                ok: true,
+                detail: format!(
+                    "client_time omitted; server_time={}",
+                    server_time.to_rfc3339()
+                ),
+            }),
+        }
+
+        let ok = checks.iter().all(|c| c.ok);
+        JoinDiagnostics {
+            ok,
+            server_time,
+            checks,
+        }
+    }
+
+    /// Local-only export payload: jobs + peer soft scores + mesh peers.
+    pub async fn export_snapshot(&self) -> serde_json::Value {
+        let jobs: Vec<_> = self.list_jobs(500).await;
+        let peers = self.reputation_snapshot().await;
+        let mesh = self.mesh_status().await;
+        serde_json::json!({
+            "exported_at": Utc::now().to_rfc3339(),
+            "node_id": self.node_id(),
+            "jobs": jobs,
+            "peer_stats": peers,
+            "mesh": mesh,
+            "note": "Local operator export only — no telemetry"
+        })
     }
 
     pub async fn list_servers(&self) -> Vec<ServerSnapshot> {
@@ -429,6 +674,11 @@ impl CollectiveHead {
         self: &Arc<Self>,
         req: JobCreateRequest,
     ) -> ProtocolResult<JobRecord> {
+        if self.is_draining() {
+            return Err(ProtocolError::LimitRejected(
+                "draining: not accepting new jobs".into(),
+            ));
+        }
         let routing = req.routing.clone();
         let job = JobRecord::new(req.clone())?;
 
@@ -449,9 +699,11 @@ impl CollectiveHead {
     async fn schedule_local(self: &Arc<Self>, mut job: JobRecord) -> ProtocolResult<JobRecord> {
         let members: Vec<_> = self.members.read().await.values().cloned().collect();
         let server = pick_server(&members, &job).await?;
-        job.status = JobStatus::Scheduled;
-        job.assigned_server_id = Some(server.server_id.clone());
-        job.updated_at = chrono::Utc::now();
+        job.push_timeline(
+            JobTimelineEvent::new(JobStatus::Scheduled)
+                .with_server(server.server_id.clone())
+                .with_note("local schedule"),
+        );
         self.jobs.write().await.insert(job.id, job.clone());
 
         let head = Arc::clone(self);
@@ -491,9 +743,11 @@ impl CollectiveHead {
             .cloned()
             .ok_or_else(|| ProtocolError::Other("mesh not enabled".into()))?;
         let peer_id = mesh.find_capable_peer(&req).await?;
-        job.status = JobStatus::Scheduled;
-        job.assigned_peer_id = Some(peer_id.clone());
-        job.updated_at = chrono::Utc::now();
+        job.push_timeline(
+            JobTimelineEvent::new(JobStatus::Scheduled)
+                .with_peer(peer_id.clone())
+                .with_note("mesh schedule"),
+        );
         self.jobs.write().await.insert(job.id, job.clone());
 
         let head = Arc::clone(self);
@@ -512,8 +766,11 @@ impl CollectiveHead {
             {
                 let mut jobs = head.jobs.write().await;
                 if let Some(j) = jobs.get_mut(&job_id) {
-                    j.status = JobStatus::Running;
-                    j.updated_at = chrono::Utc::now();
+                    j.push_timeline(
+                        JobTimelineEvent::new(JobStatus::Running)
+                            .with_peer(peer_id.clone())
+                            .with_note("mesh offer"),
+                    );
                 }
             }
             let offer_req = JobCreateRequest {
@@ -547,33 +804,44 @@ impl CollectiveHead {
                     // Enforce fingerprint pin on attested result.
                     if result.attestation.model_fingerprint != current.fingerprint {
                         if let Some(j) = jobs.get_mut(&job_id) {
-                            j.status = JobStatus::Failed;
                             j.error = Some("attestation fingerprint mismatch".into());
-                            j.updated_at = chrono::Utc::now();
+                            j.push_timeline(
+                                JobTimelineEvent::new(JobStatus::Failed)
+                                    .with_peer(peer_id.clone())
+                                    .with_note("attestation fingerprint mismatch"),
+                            );
                         }
                         return;
                     }
                     if let Err(err) = result.attestation.verify(&result.output) {
                         if let Some(j) = jobs.get_mut(&job_id) {
-                            j.status = JobStatus::Failed;
                             j.error = Some(err.to_string());
-                            j.updated_at = chrono::Utc::now();
+                            j.push_timeline(
+                                JobTimelineEvent::new(JobStatus::Failed)
+                                    .with_peer(peer_id.clone())
+                                    .with_note(err.to_string()),
+                            );
                         }
                         return;
                     }
                     if let Some(j) = jobs.get_mut(&job_id) {
-                        j.status = JobStatus::Succeeded;
                         j.result = Some(result);
                         j.error = None;
                         j.result_decision = ResultDecision::Pending;
-                        j.updated_at = chrono::Utc::now();
+                        j.push_timeline(
+                            JobTimelineEvent::new(JobStatus::Succeeded)
+                                .with_peer(peer_id.clone()),
+                        );
                     }
                 }
                 Err(err) => {
                     if let Some(j) = jobs.get_mut(&job_id) {
-                        j.status = JobStatus::Failed;
                         j.error = Some(err.to_string());
-                        j.updated_at = chrono::Utc::now();
+                        j.push_timeline(
+                            JobTimelineEvent::new(JobStatus::Failed)
+                                .with_peer(peer_id.clone())
+                                .with_note(err.to_string()),
+                        );
                     }
                 }
             }
@@ -657,10 +925,13 @@ impl CollectiveHead {
         if !job.status.is_cancellable() {
             return Err(ProtocolError::JobNotCancellable(job.status.to_string()));
         }
-        job.status = JobStatus::Cancelled;
-        job.updated_at = chrono::Utc::now();
+        job.push_timeline(JobTimelineEvent::new(JobStatus::Cancelled).with_note("operator cancel"));
         warn!(job_id = %id, "job cancelled");
         Ok(job.clone())
+    }
+
+    pub async fn job_timeline(&self, id: &JobId) -> ProtocolResult<Vec<JobTimelineEvent>> {
+        Ok(self.get_job(id).await?.timeline)
     }
 }
 
@@ -689,7 +960,16 @@ impl MeshHost for CollectiveHead {
         CapabilityAdvert::stub_local(&self.head_server_id, "unknown")
     }
 
+    async fn is_draining(&self) -> bool {
+        self.draining_active()
+    }
+
     async fn execute_mesh_job(&self, request: JobCreateRequest) -> ProtocolResult<JobResult> {
+        if self.is_draining() {
+            return Err(ProtocolError::LimitRejected(
+                "draining: not accepting new jobs".into(),
+            ));
+        }
         let members: Vec<_> = self.members.read().await.values().cloned().collect();
         let mut eligible = Vec::new();
         for m in &members {

@@ -587,7 +587,7 @@ paths:
         - $ref: "#/components/parameters/JobId"
       responses:
         "200":
-          description: Status
+          description: Status (includes timeline)
           content:
             application/json:
               schema:
@@ -596,6 +596,109 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "404":
           $ref: "#/components/responses/Error"
+  /v1/jobs/{job_id}/timeline:
+    get:
+      tags: [studio]
+      summary: Job state history (queued → running → done/failed)
+      parameters:
+        - $ref: "#/components/parameters/JobId"
+      responses:
+        "200":
+          description: Timeline events with timestamps and peer/server
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/Error"
+  /v1/admin/drain:
+    get:
+      tags: [admin]
+      summary: Graceful drain status
+      responses:
+        "200":
+          description: Drain snapshot
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    post:
+      tags: [admin]
+      summary: Begin graceful drain (stop new jobs; exit when idle)
+      responses:
+        "200":
+          description: Drain snapshot
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /v1/admin/diagnostics/join:
+    post:
+      tags: [admin]
+      summary: Pre-connect join diagnostics
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                peer_addr:
+                  type: string
+                token:
+                  type: string
+                client_time:
+                  type: string
+                  format: date-time
+      responses:
+        "200":
+          description: Diagnostic checks
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /v1/admin/export:
+    get:
+      tags: [admin]
+      summary: Local-only export of jobs and peer stats
+      responses:
+        "200":
+          description: Snapshot JSON
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /v1/admin/mesh/health:
+    get:
+      tags: [mesh]
+      summary: Mesh health strip (last-seen, RTT, accept/reject rates)
+      responses:
+        "200":
+          description: Per-peer health
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
   /v1/jobs/{job_id}/result:
     get:
       tags: [studio]
@@ -856,6 +959,22 @@ components:
         error:
           type: string
           nullable: true
+        timeline:
+          type: array
+          items:
+            type: object
+            properties:
+              at:
+                type: string
+                format: date-time
+              status:
+                type: string
+              peer_id:
+                type: string
+              server_id:
+                type: string
+              note:
+                type: string
     ResultAttestation:
       type: object
       required: [worker_node_id, model_fingerprint, runtime, wall_time_ms, signature_hex]

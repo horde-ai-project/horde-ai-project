@@ -11,6 +11,7 @@ horde-protocol = { workspace = true }
 horde-node = { workspace = true }
 anyhow = { workspace = true }
 async-trait = { workspace = true }
+chrono = { workspace = true }
 ed25519-dalek = { workspace = true }
 hex = { workspace = true }
 rand = { workspace = true }
